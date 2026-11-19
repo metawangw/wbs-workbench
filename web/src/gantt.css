@@ -1,0 +1,499 @@
+/* ==========================================================================
+   甘特图视图（web/src/components/GanttView.tsx）
+   与 styles.css 分离：另一位工程师正在改 styles.css，这里只新增 gantt- 前缀类。
+   颜色沿用 styles.css :root 里的 CSS 变量。
+   ========================================================================== */
+
+.gantt-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+/* --------------------------------------------------------------- 工具条 */
+
+.gantt-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 7px 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.gantt-zoom.ant-segmented {
+  background: var(--surface-muted);
+  padding: 2px;
+  border-radius: 6px;
+  flex: none;
+}
+
+.gantt-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  color: var(--text-3);
+  font-size: calc(11px + var(--fs-bump));
+  cursor: pointer;
+  user-select: none;
+}
+
+.gantt-toggle-label {
+  cursor: pointer;
+}
+
+.gantt-spacer {
+  flex: 1 1 auto;
+}
+
+.gantt-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-4);
+  font-size: calc(10.5px + var(--fs-bump));
+  white-space: nowrap;
+}
+
+.gantt-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.gantt-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.gantt-legend-dot.done {
+  background: var(--green);
+}
+
+.gantt-legend-dot.active {
+  background: #7a5af8;
+}
+
+.gantt-legend-dot.planned {
+  background: #9dbbfd;
+}
+
+.gantt-legend-dot.overdue {
+  background: var(--p0);
+}
+
+.gantt-notice {
+  padding: 7px 12px;
+  background: #fffaeb;
+  border-bottom: 1px solid #fef0c7;
+  color: #b54708;
+  font-size: calc(11px + var(--fs-bump));
+}
+
+/* --------------------------------------------------------------- 画布 */
+
+/*
+ * 甘特区高度由 styles.css 里的 .content → .content-inner → .project-view
+ * flex 链撑满视口剩余空间，这里只负责把面板内部拆成「固定工具条 + 可滚时间轴」。
+ * 没有 footnote、没有 calc(100vh - N) 魔法数字；极矮窗口用 min-height 兜底。
+ */
+.gantt-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 366px; /* 工具条 + 时间轴 320px 的安全下限 */
+}
+
+.gantt-scroll {
+  position: relative;
+  flex: 1 1 auto;
+  overflow: auto;
+  min-height: 320px;
+  max-height: none;
+}
+
+.gantt-canvas {
+  position: relative;
+}
+
+.gantt-head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  background: var(--surface-soft);
+  border-bottom: 1px solid var(--border);
+}
+
+.gantt-head-left {
+  position: sticky;
+  left: 0;
+  z-index: 7;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  background: var(--surface-soft);
+  border-right: 1px solid var(--border);
+  font-size: calc(11px + var(--fs-bump));
+  color: var(--text-3);
+}
+
+.gantt-head-title {
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.gantt-head-count {
+  color: var(--text-4);
+}
+
+.gantt-head-time {
+  flex: none;
+  position: relative;
+}
+
+.gantt-head-row {
+  display: flex;
+}
+
+.gantt-head-row.is-second {
+  border-top: 1px solid var(--border-soft);
+}
+
+.gantt-head-cell {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 0 4px;
+  border-right: 1px solid var(--border-soft);
+  color: var(--text-3);
+  font-size: calc(10.5px + var(--fs-bump));
+  font-weight: 500;
+}
+
+.gantt-head-cell.is-unit {
+  flex-direction: column;
+  gap: 0;
+  line-height: 1.1;
+  color: var(--text-4);
+  font-weight: 400;
+}
+
+.gantt-head-cell.is-today {
+  color: var(--primary);
+  font-weight: 600;
+  background: rgba(37, 99, 235, 0.07);
+}
+
+.gantt-head-unit-label {
+  font-variant-numeric: tabular-nums;
+}
+
+.gantt-head-unit-sub {
+  font-size: calc(9px + var(--fs-bump));
+  color: var(--text-4);
+}
+
+/* --------------------------------------------------------------- 行 */
+
+.gantt-body {
+  position: relative;
+}
+
+.gantt-body .gantt-row:last-child {
+  border-bottom: 0;
+}
+
+.gantt-row {
+  display: flex;
+  border-bottom: 1px solid var(--border-soft);
+  transition: background 0.12s;
+}
+
+.gantt-row:hover {
+  background: var(--surface-soft);
+}
+
+.gantt-cell-left {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-right: 8px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.gantt-row:hover .gantt-cell-left {
+  background: var(--surface-soft);
+}
+
+.gantt-cell-left:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.gantt-chevron {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-4);
+  cursor: pointer;
+  transition: transform 0.15s, color 0.15s;
+}
+
+.gantt-chevron:hover {
+  color: var(--text-2);
+}
+
+.gantt-chevron .is-open {
+  transform: rotate(90deg);
+}
+
+.gantt-chevron-spacer {
+  flex: none;
+  width: 14px;
+}
+
+.gantt-check {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.gantt-code {
+  flex: none;
+  min-width: 30px;
+  color: var(--text-4);
+  font-size: calc(10.5px + var(--fs-bump));
+  font-variant-numeric: tabular-nums;
+}
+
+.gantt-row-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: calc(12px + var(--fs-bump));
+}
+
+.gantt-row.is-done .gantt-row-title {
+  color: var(--text-4);
+  text-decoration: line-through;
+}
+
+.gantt-row.is-done .gantt-code {
+  color: #c3c9d4;
+}
+
+.gantt-cell-time {
+  position: relative;
+  flex: none;
+}
+
+/* --------------------------------------------------------------- 网格背景 */
+
+.gantt-grid {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.gantt-grid-days {
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(to right, var(--border-soft) 1px, transparent 1px);
+  background-repeat: repeat;
+}
+
+.gantt-grid-month {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px solid var(--border);
+}
+
+.gantt-grid-today {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 2px solid rgba(217, 45, 32, 0.55);
+}
+
+/* Dependency arrows overlay: sits above the grid but below the bars so it
+   never intercepts clicks on a task row or bar. */
+.gantt-deps {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.gantt-dep-line {
+  fill: none;
+  stroke: #7a5af8;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  opacity: 0.85;
+  marker-end: url(#gantt-dep-arrow);
+}
+
+/* --------------------------------------------------------------- 甘特条 */
+
+.gantt-bar {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 22px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: calc(10.5px + var(--fs-bump));
+  font-weight: 600;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.14);
+  transition: filter 0.12s, box-shadow 0.12s;
+  z-index: 1;
+  /* --bar-bg: unfinished (light) part; --bar-fill: completed (dark) part. */
+  --bar-bg: #a894f0;
+  --bar-fill: #5925dc;
+  background: var(--bar-bg);
+}
+
+.gantt-bar:hover {
+  filter: brightness(0.95);
+  box-shadow: 0 2px 6px rgba(16, 24, 40, 0.2);
+}
+
+.gantt-bar:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* 未设置进度：整条使用深色（完成色），与设置了进度的浅底+深填充形成区分 */
+.gantt-bar.no-progress {
+  background: var(--bar-fill);
+}
+
+/* 已完成：浅绿底 + 深绿进度 */
+.gantt-bar.is-done {
+  --bar-bg: #7fd8ad;
+  --bar-fill: #067647;
+}
+
+/* 进行中：浅紫底 + 深紫进度 */
+.gantt-bar.is-active {
+  --bar-bg: #a894f0;
+  --bar-fill: #5925dc;
+}
+
+/* 未开始：浅蓝底 + 深蓝进度 */
+.gantt-bar.is-planned {
+  --bar-bg: #8fb4f5;
+  --bar-fill: #175cd3;
+}
+
+/* 超时：浅红底 + 深红进度 */
+.gantt-bar.is-overdue {
+  --bar-bg: #f28b82;
+  --bar-fill: #b42318;
+}
+
+/* 父任务（汇总行）：半透明 + 内描边，和叶子任务区分开 */
+.gantt-bar.is-summary {
+  opacity: 0.92;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.6),
+    0 1px 2px rgba(16, 24, 40, 0.12);
+}
+
+/* 单日任务用小圆角胶囊表示 */
+.gantt-bar.is-milestone {
+  padding: 0 3px;
+  border-radius: 8px;
+}
+
+.gantt-bar-label {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Completion fill: a solid darker overlay covering the left `progress%` of
+   the bar, so the completed part reads dark and the remaining part stays light.
+   A thin highlight on the boundary makes the split crisp. */
+.gantt-bar-progress {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: var(--bar-fill);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.5);
+}
+
+.gantt-unscheduled {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: var(--surface-muted);
+  color: var(--text-4);
+  font-size: calc(10px + var(--fs-bump));
+}
+
+/* --------------------------------------------------------------- 详情抽屉里的小提示 */
+
+.gantt-field-hint {
+  margin-top: 3px;
+  color: #b54708;
+  font-size: calc(10px + var(--fs-bump));
+  line-height: 1.4;
+}
+
+/* --------------------------------------------------------------- 窄屏 */
+
+@media (max-width: 900px) {
+  .gantt-legend {
+    display: none;
+  }
+}

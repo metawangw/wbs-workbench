@@ -1,0 +1,261 @@
+/* ==========================================================================
+   暗色页面风格（Page style: dark）
+   通过 <html data-theme="dark"> 启用；亮色保持 styles.css 原始配色不变。
+   P0/P1/P2 优先级颜色在亮色下仍是 styles.css 的默认色，不受影响。
+   ========================================================================== */
+
+html[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #0f141c;
+  --panel: #181f2a;
+  --surface: #1b2330;
+  --surface-soft: #202a38;
+  --surface-muted: #293344;
+  --border: #2d3848;
+  --border-soft: #252f3d;
+
+  --text: #e6ebf2;
+  --text-2: #c2cbd8;
+  --text-3: #98a4b5;
+  --text-4: #6f7d90;
+
+  --primary: #6b9dff;
+  --primary-hover: #85aeff;
+  --primary-weak: #1b2c4a;
+
+  --p0: #f97066;
+  --p1: #f79009;
+  --p2: #98a4b5;
+
+  --green: #32c58a;
+  --green-text: #6ee7b7;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+
+html[data-theme='dark'] body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+html[data-theme='dark'] ::selection {
+  background: rgba(107, 157, 255, 0.3);
+}
+
+html[data-theme='dark'] *::-webkit-scrollbar-thumb {
+  background: #3a4658;
+}
+html[data-theme='dark'] *::-webkit-scrollbar-thumb:hover {
+  background: #4b5a70;
+}
+
+/* --- 品牌标记：跟随用户设置的颜色；文字始终白色 --- */
+html[data-theme='dark'] .brand-mark {
+  background: var(--brand-color, #2563eb);
+}
+
+/* --- 浅色提示块 / 状态徽章：深色化 --- */
+html[data-theme='dark'] .overview-link.is-active,
+html[data-theme='dark'] .project-item.is-active {
+  background: #1b2c4a;
+  border-color: #2f4a78;
+}
+html[data-theme='dark'] .side-search.ant-input-affix-wrapper:focus-within,
+html[data-theme='dark'] .filter-search.ant-input-affix-wrapper,
+html[data-theme='dark'] .filter-select.ant-select .ant-select-selector,
+html[data-theme='dark'] .progress-composer .ant-input:focus {
+  border-color: #38465c;
+}
+html[data-theme='dark'] .filter-select.ant-select:hover .ant-select-selector {
+  border-color: #4b5a70;
+}
+
+html[data-theme='dark'] .project-p0,
+html[data-theme='dark'] .prio-pill.p0 {
+  color: #fda29b;
+  background: #4a1f1f;
+}
+html[data-theme='dark'] .prio-pill.p1 {
+  color: #fec84b;
+  background: #4a3212;
+}
+html[data-theme='dark'] .prio-pill.p2 {
+  color: #c2cbd8;
+  background: var(--surface-muted);
+}
+
+html[data-theme='dark'] .group-dot.p0,
+html[data-theme='dark'] .mini-dot.p0 {
+  background: #f04438;
+}
+html[data-theme='dark'] .group-dot.p1,
+html[data-theme='dark'] .mini-dot.p1 {
+  background: #f79009;
+}
+
+html[data-theme='dark'] .group-title.tone-p0 {
+  color: #fda29b;
+}
+html[data-theme='dark'] .group-title.tone-p1 {
+  color: #fec84b;
+}
+html[data-theme='dark'] .group-title.tone-p2 {
+  color: #c2cbd8;
+}
+
+html[data-theme='dark'] .status-chip.ok,
+html[data-theme='dark'] .status-pill.done {
+  background: #123a2b;
+  border-color: #1e5e45;
+  color: #6ee7b7;
+}
+html[data-theme='dark'] .status-chip.active,
+html[data-theme='dark'] .status-pill.open {
+  color: #8ab4ff;
+  background: #1b2c4a;
+  border-color: #2f4a78;
+}
+
+html[data-theme='dark'] .mini-progress,
+html[data-theme='dark'] .index-progress-track,
+html[data-theme='dark'] .mini-progress-track {
+  background: var(--surface-muted);
+}
+html[data-theme='dark'] .mini-progress > span,
+html[data-theme='dark'] .index-progress-track > span {
+  background: #6b9dff;
+}
+
+html[data-theme='dark'] .topbar-stat b {
+  color: var(--text);
+}
+html[data-theme='dark'] .topbar-stat.is-danger b,
+html[data-theme='dark'] .overview-kpi-value.danger,
+html[data-theme='dark'] .index-p1.warn,
+html[data-theme='dark'] .due-meta.danger .due-date,
+html[data-theme='dark'] .due-meta.soon .due-date,
+html[data-theme='dark'] .warning-strip,
+html[data-theme='dark'] .warning-first,
+html[data-theme='dark'] .dirty-hint,
+html[data-theme='dark'] .index-overdue.danger {
+  color: #f79009;
+}
+html[data-theme='dark'] .topbar-stat.is-danger b,
+html[data-theme='dark'] .overview-kpi-value.danger,
+html[data-theme='dark'] .due-meta.danger .due-date,
+html[data-theme='dark'] .index-overdue.danger {
+  color: #f97066;
+}
+html[data-theme='dark'] .topbar-stat.is-warning b {
+  color: #fec84b;
+}
+
+html[data-theme='dark'] .stat-sep,
+html[data-theme='dark'] .due-sep,
+html[data-theme='dark'] .cell-muted,
+html[data-theme='dark'] .folder-empty,
+html[data-theme='dark'] .preview-toggle:disabled,
+html[data-theme='dark'] .gantt-row.is-done .gantt-code {
+  color: var(--text-4);
+}
+
+html[data-theme='dark'] .latest-progress.is-inline .latest-progress-label,
+html[data-theme='dark'] .latest-progress-label,
+html[data-theme='dark'] .latest-progress-date,
+html[data-theme='dark'] .progress-float-label {
+  color: #8ab4ff;
+}
+
+html[data-theme='dark'] .task-checkbox .ant-checkbox-inner,
+html[data-theme='dark'] .timeline-item::before {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+html[data-theme='dark'] .warning-strip,
+html[data-theme='dark'] .gantt-notice {
+  background: #3a2a10;
+  border-color: #5c4218;
+  color: #fec84b;
+}
+html[data-theme='dark'] .dirty-hint::before {
+  background: #f79009;
+}
+
+html[data-theme='dark'] .chart-fill {
+  background: #3b82f6;
+}
+html[data-theme='dark'] .chart-row:hover .chart-fill {
+  background: #2a78d6;
+}
+
+html[data-theme='dark'] .markdown-text code {
+  color: #c2cbd8;
+}
+
+html[data-theme='dark'] .dir-browser-error,
+html[data-theme='dark'] .dir-browser-hint.dir-browser-error {
+  color: #fda29b;
+}
+
+/* --- 甘特图深色补充 --- */
+html[data-theme='dark'] .gantt-toolbar,
+html[data-theme='dark'] .gantt-head,
+html[data-theme='dark'] .gantt-head-left {
+  background: var(--surface);
+}
+html[data-theme='dark'] .gantt-cell-left {
+  background: var(--panel);
+}
+html[data-theme='dark'] .gantt-row:hover,
+html[data-theme='dark'] .gantt-row:hover .gantt-cell-left {
+  background: var(--surface-soft);
+}
+html[data-theme='dark'] .gantt-zoom.ant-segmented {
+  background: var(--surface-muted);
+}
+html[data-theme='dark'] .gantt-head-cell.is-today {
+  background: rgba(107, 157, 255, 0.16);
+}
+html[data-theme='dark'] .ganttunscheduled,
+html[data-theme='dark'] .gantt-unscheduled {
+  background: var(--surface-muted);
+}
+
+/* 甘特条深浅由各 tone 的 --bar-bg / --bar-fill 定义，亮暗色通用 */
+
+/* --- 设置面板深色补充 --- */
+html[data-theme='dark'] .settings-nav,
+html[data-theme='dark'] .brand-preview,
+html[data-theme='dark'] .dir-current code,
+html[data-theme='dark'] .appearance-preview-body {
+  background: var(--surface);
+}
+html[data-theme='dark'] .settings-nav-item:hover {
+  background: var(--surface-muted);
+}
+html[data-theme='dark'] .color-swatch {
+  border-color: var(--panel);
+  box-shadow: 0 0 0 1px var(--border);
+}
+html[data-theme='dark'] .appearance-preview-bar {
+  background: #3b82f6 !important;
+}
+html[data-theme='dark'] .side-settings-btn {
+  background: var(--surface);
+}
+html[data-theme='dark'] .side-settings-btn:hover {
+  background: var(--primary-weak);
+}
+
+/* --- 卡片、表格、图例等通用深色修饰 --- */
+html[data-theme='dark'] .card,
+html[data-theme='dark'] .panel,
+html[data-theme='dark'] .stat-card {
+  background: var(--panel);
+}
+html[data-theme='dark'] .gantt-legend-dot.planned {
+  background: #4483ff;
+}

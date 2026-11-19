@@ -1,0 +1,20 @@
+# 依赖与构建产物
+node_modules/
+dist/
+
+# 便携运行时（体积大，不入库；跨机迁移请使用 7z 迁移包）
+runtime/
+
+# 本地数据与运行态
+data/
+.wbs-runtime.json
+.wbs-config.json
+.wbs-tray.pid
+*.log
+*.tmp
+.env
+.env.local
+
+# 工具内部目录
+.workbuddy/
+.DS_Store

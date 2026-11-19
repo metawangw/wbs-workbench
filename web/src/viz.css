@@ -1,0 +1,8 @@
+/* ==========================================================================
+   web/src/viz.css
+
+   Reserved for standalone data-visualisation styles. The overview pie chart
+   was removed; this file is intentionally left empty so the existing
+   `import './viz.css'` in main.tsx stays valid. Do not move unrelated styles
+   here — keep them in styles.css or a dedicated module stylesheet.
+   ========================================================================== */
