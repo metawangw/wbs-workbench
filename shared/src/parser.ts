@@ -1,8 +1,17 @@
 import matter from 'gray-matter';
+import {
+  PROJECT_PAGE_KEYS,
+  normalizeMilestoneTaskIds,
+  normalizeProjectPageOrder,
+  projectPageEnd,
+  projectPageStart,
+  type ProjectPageKey,
+} from './pages';
 import type { ProjectDoc, TaskFields, TaskNode } from './types';
 
 const FIELD_ALIASES: Record<string, string> = {
   负责人: 'owner',
+  联系人: 'owner',
   优先级: 'priority',
   重要性: 'importance',
   重要度: 'importance',
@@ -18,18 +27,54 @@ const FIELD_ALIASES: Record<string, string> = {
   依赖: 'deps',
   前置: 'deps',
   前置任务: 'deps',
+  创建日期: 'created',
+  建档日期: 'created',
+  创建时间: 'created',
+  created: 'created',
+  showCreated: 'showCreated',
+  显示创建日期: 'showCreated',
+  显示建档日期: 'showCreated',
+  isTitle: 'isTitle',
+  标题任务: 'isTitle',
+  标题类型: 'isTitle',
+  isVersion: 'isVersion',
+  版本任务: 'isVersion',
+  版本类型: 'isVersion',
+  version: 'version',
+  版本: 'version',
+  所属版本: 'version',
+  版本号: 'version',
+  今日关注: 'focus',
+  关注: 'focus',
+  标记: 'focus',
+  focus: 'focus',
+  贴纸颜色: 'focusColor',
+  focusColor: 'focusColor',
 };
 
 const TASK_LINE = /^([ \t]*)- \[([ xX])\](?:[ \t]+(.*))?$/;
 const PROGRESS_LINE =
   /^([ \t]*)-[ \t]+(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}))?[ \t]+(.+)$/;
 const HEADING_LINE = /^(#{1,6})[ \t]+(.*?)[ \t]*$/;
+/** 分组描述写在 H2 标题行尾：`## 名称 <!-- desc:描述 -->`。 */
+const SECTION_DESC_COMMENT = /[ \t]*<!--\s*desc:\s*([\s\S]*?)\s*-->[ \t]*$/;
 const ID_COMMENT = /[ \t]*<!--\s*id:\s*([A-Za-z0-9_-]+)\s*-->[ \t]*$/;
 const FIELD_TOKEN = /\[([\w一-鿿-]+)::([^\]]*)\]/g;
 const FIELD_TOKEN_STRIP = /\[[\w一-鿿-]+::[^\]]*\]/g;
 const FENCE_LINE = /^[ \t]*(```|~~~)/;
 const DESCRIPTION_START = '<!-- description:start -->';
 const DESCRIPTION_END = '<!-- description:end -->';
+
+/** 页面块标记（里程碑 / 风险 / 成本），供分节收集时整块跳过。 */
+function isPageStart(line: string): boolean {
+  const match = /^<!--\s*page:[\w-]+:start\s*-->$/.exec(line);
+  return Boolean(match);
+}
+
+function isPageEnd(line: string): boolean {
+  const match = /^<!--\s*page:[\w-]+:end\s*-->$/.exec(line);
+  return Boolean(match);
+}
 
 /**
  * Parse a project markdown file.
@@ -74,6 +119,33 @@ export function parseProject(relPath: string, input: string): ProjectDoc {
     }
   }
 
+  // ---- 里程碑 / 风险 / 成本：各自一个标记块，内容与简介一样只作文档 ----
+  const pages: Partial<Record<ProjectPageKey, string>> = {};
+  const blockRanges: Array<[number, number]> = [];
+  if (descStart >= 0 && description !== undefined) {
+    const descEnd = lines.findIndex(
+      (line, index) => index > descStart && line.trim() === DESCRIPTION_END,
+    );
+    blockRanges.push([descStart, descEnd]);
+  }
+  // 简介没有独立的 page:intro 标记块，内容就在上面的 description 块里。
+  if (description?.trim()) pages.intro = description;
+  for (const key of PROJECT_PAGE_KEYS) {
+    if (key === 'intro') continue;
+    const start = lines.findIndex(
+      (line, index) => index > fmEnd && line.trim() === projectPageStart(key),
+    );
+    if (start < 0) continue;
+    const end = lines.findIndex(
+      (line, index) => index > start && line.trim() === projectPageEnd(key),
+    );
+    if (end <= start) continue;
+    blockRanges.push([start, end]);
+    pages[key] = lines.slice(start + 1, end).join('\n').trim();
+  }
+  const inBlock = (index: number) =>
+    blockRanges.some(([start, end]) => index >= start && index <= end);
+
   const roots: TaskNode[] = [];
   const byId = new Map<string, TaskNode>();
   const stack: TaskNode[] = [];
@@ -81,22 +153,20 @@ export function parseProject(relPath: string, input: string): ProjectDoc {
   let title: string | undefined;
   let section: string | undefined;
   let inFence = false;
-  let inDescription = false;
+  // 上一条进展（含它所在行的缩进），用来把后续更深缩进的行并进同一条记录。
+  let lastProgress: { entry: { text: string }; indent: number } | null = null;
+  // 进展续行之间可能出现的空行（写入端保留缩进的纯空格行），合并时还原成段落分隔。
+  let pendingBlank = false;
 
   for (let lineNo = Math.max(0, fmEnd + 1); lineNo < lines.length; lineNo++) {
     const raw = lines[lineNo];
-    // Description content is documentation only: never let headings or task
-    // markers inside it pollute the parsed project tree.
-    if (raw.trim() === DESCRIPTION_START) {
-      inDescription = true;
+    // 简介与三个页面块都是纯文档：里面的标题、任务标记一律不参与解析。
+    if (inBlock(lineNo)) continue;
+    if (!raw.trim()) {
+      // 空白行不打断多条进展的续行：只挂起归属，遇到更深缩进的行再接回去。
+      pendingBlank = true;
       continue;
     }
-    if (raw.trim() === DESCRIPTION_END) {
-      inDescription = false;
-      continue;
-    }
-    if (inDescription) continue;
-    if (!raw.trim()) continue;
 
     if (FENCE_LINE.test(raw)) {
       inFence = !inFence;
@@ -107,13 +177,15 @@ export function parseProject(relPath: string, input: string): ProjectDoc {
     const heading = HEADING_LINE.exec(raw);
     if (heading) {
       stack.length = 0;
+      lastProgress = null;
       if (heading[1].length === 1 && !title) title = heading[2];
-      if (heading[1].length === 2) section = heading[2];
+      if (heading[1].length === 2) section = parseSectionHeading(heading[2]).name;
       continue;
     }
 
     const taskMatch = TASK_LINE.exec(raw);
     if (taskMatch) {
+      lastProgress = null;
       const indent = indentWidth(taskMatch[1]);
       const node = buildTask(
         relPath,
@@ -154,7 +226,7 @@ export function parseProject(relPath: string, input: string): ProjectDoc {
 
       const body = progressMatch[4];
       const author = /\[by::([^\]]*)\]/.exec(body)?.[1]?.trim();
-      owner.progress.push({
+      const entry = {
         date: progressMatch[2],
         time: progressMatch[3],
         author,
@@ -163,14 +235,46 @@ export function parseProject(relPath: string, input: string): ProjectDoc {
           .replace(/\s+/g, ' ')
           .trim(),
         line: lineNo,
-      });
+      };
+      owner.progress.push(entry);
+      lastProgress = { entry, indent };
+      pendingBlank = false;
       continue;
+    }
+
+    // 更深缩进的普通行属于上一条进展的续行（多行进展），原样接在后面；
+    // 中间若跨过空行，用一个空行还原段落分隔，避免两段文字黏在一起。
+    if (lastProgress && indentWidth(raw) > lastProgress.indent) {
+      const extra = raw.trim().replace(FIELD_TOKEN_STRIP, '').trim();
+      if (extra) {
+        const gap = pendingBlank ? '\n\n' : '\n';
+        lastProgress.entry.text = `${lastProgress.entry.text}${gap}${extra}`;
+        pendingBlank = false;
+        continue;
+      }
     }
 
     // Quotes, paragraphs and plain lists are intentionally preserved but not parsed.
   }
 
-  return { meta, title, description, roots, byId, lines, eol, warnings };
+  const hasPages = Object.keys(pages).length > 0;
+  // 只在文件里显式写过 pageOrder 时才带出去，否则交给默认顺序。
+  const pageOrder =
+    meta.pageOrder === undefined ? undefined : normalizeProjectPageOrder(meta.pageOrder);
+  const milestoneTasks = normalizeMilestoneTaskIds(meta.milestoneTasks);
+  return {
+    meta,
+    title,
+    description,
+    pages: hasPages ? pages : undefined,
+    pageOrder,
+    milestoneTasks: milestoneTasks.length ? milestoneTasks : undefined,
+    roots,
+    byId,
+    lines,
+    eol,
+    warnings,
+  };
 }
 
 function buildTask(
@@ -236,10 +340,17 @@ const FIELD_ORDER = [
   'importance',
   'start',
   'due',
+  'created',
+  'showCreated',
+  'isTitle',
+  'isVersion',
+  'focus',
+  'focusColor',
   'cycle',
   'confirm',
   'progress',
   'deps',
+  'version',
 ];
 
 /** Serialize one task line. Untouched lines are never passed through this. */
@@ -280,26 +391,43 @@ export function indentWidth(whitespace: string): number {
 }
 
 /**
- * Ordered list of H2 group names (`## name`). Fence-aware and description-
- * aware: headings inside the project description block are documentation,
- * never real groups. Empty groups are included so the UI can show them while
- * managing task sections.
+ * 从 H2 标题文本里拆出「分组名 + 可选描述」。描述以行尾的
+ * `<!-- desc:… -->` 注释承载，不占正文行，也不会被当成任务或新分组。
  */
-export function collectSections(lines: string[]): string[] {
-  const out: string[] = [];
+export function parseSectionHeading(text: string): {
+  name: string;
+  description?: string;
+} {
+  const match = SECTION_DESC_COMMENT.exec(text);
+  if (!match) return { name: text.trim() };
+  return {
+    name: text.slice(0, match.index).trim(),
+    description: match[1].trim() || undefined,
+  };
+}
+
+/** 拼回带描述的 H2 标题行。 */
+export function formatSectionHeading(name: string, description?: string): string {
+  const desc = description?.replace(/-->/g, '').trim();
+  return `## ${name}${desc ? ` <!-- desc:${desc} -->` : ''}`;
+}
+
+/** 分组名 → 描述 的映射，供前端在分组标题行右侧展示。 */
+export function collectSectionDescriptions(lines: string[]): Record<string, string> {
+  const out: Record<string, string> = {};
   let inFence = false;
-  let inDescription = false;
+  let blockDepth = 0;
   for (const line of lines) {
     const trimmed = line.trim();
-    if (trimmed === DESCRIPTION_START) {
-      inDescription = true;
+    if (trimmed === DESCRIPTION_START || isPageStart(trimmed)) {
+      blockDepth += 1;
       continue;
     }
-    if (trimmed === DESCRIPTION_END) {
-      inDescription = false;
+    if (trimmed === DESCRIPTION_END || isPageEnd(trimmed)) {
+      blockDepth = Math.max(0, blockDepth - 1);
       continue;
     }
-    if (inDescription) continue;
+    if (blockDepth > 0) continue;
     if (FENCE_LINE.test(line)) {
       inFence = !inFence;
       continue;
@@ -307,7 +435,42 @@ export function collectSections(lines: string[]): string[] {
     if (inFence) continue;
     const heading = HEADING_LINE.exec(line);
     if (heading && heading[1].length === 2) {
-      const name = heading[2].trim();
+      const { name, description } = parseSectionHeading(heading[2]);
+      if (name && description) out[name] = description;
+    }
+  }
+  return out;
+}
+
+/**
+ * Ordered list of H2 group names (`## name`). Fence-aware and block-aware:
+ * headings inside the description or a page block are documentation, never
+ * real groups. Empty groups are included so the UI can show them while
+ * managing task sections.
+ */
+export function collectSections(lines: string[]): string[] {
+  const out: string[] = [];
+  let inFence = false;
+  let blockDepth = 0;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed === DESCRIPTION_START || isPageStart(trimmed)) {
+      blockDepth += 1;
+      continue;
+    }
+    if (trimmed === DESCRIPTION_END || isPageEnd(trimmed)) {
+      blockDepth = Math.max(0, blockDepth - 1);
+      continue;
+    }
+    if (blockDepth > 0) continue;
+    if (FENCE_LINE.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const heading = HEADING_LINE.exec(line);
+    if (heading && heading[1].length === 2) {
+      const { name } = parseSectionHeading(heading[2]);
       if (name && !out.includes(name)) out.push(name);
     }
   }

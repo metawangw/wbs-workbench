@@ -16,17 +16,31 @@ import {
   DownOutlined,
   EditOutlined,
   PlusOutlined,
+  PushpinFilled,
+  PushpinOutlined,
   RightOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import { collectCodes, type TaskNode } from '@wbs/shared';
+import {
+  collectCodes,
+  isFocused,
+  isTitleTask,
+  isVersionTask,
+  parseDeps,
+  relatedTaskIds,
+  showsCreated,
+  type TaskNode,
+} from '@wbs/shared';
 import { useStore } from '../store';
 import {
   collectExpandableIds,
+  filterByTypes,
   filterTree,
-  sortTree,
+  groupBySection,
+  type SectionGroup,
 } from '../lib/filters';
 import {
+  CreatedChip,
   CycleChip,
   DueChip,
   ImportanceChip,
@@ -34,7 +48,11 @@ import {
   OwnerChip,
   PriorityPill,
   StatusPill,
+  VersionChip,
+  VersionTypeTag,
 } from './atoms';
+import { LIST_COLUMN_WIDTHS, type ListColumnKey } from '../lib/columns';
+import { fontSizeBump } from '../lib/settings';
 import { NoMatches } from './EmptyStates';
 
 type TableRow = Omit<TaskNode, 'children'> & { children?: TableRow[] };
@@ -52,12 +70,7 @@ interface DragState {
   targetSection: string;
 }
 
-interface TaskGroup {
-  key: string;
-  name: string;
-  isUngrouped: boolean;
-  roots: TaskNode[];
-}
+type TaskGroup = SectionGroup;
 
 function toRows(nodes: TaskNode[]): TableRow[] {
   return nodes.map(({ children, ...rest }) => ({
@@ -154,27 +167,60 @@ export default function ListView() {
   const toggleCollapsed = useStore((state) => state.toggleCollapsed);
   const toggleDone = useStore((state) => state.toggleDone);
   const openTask = useStore((state) => state.openTask);
+  const openCreate = useStore((state) => state.openCreate);
   const openCreateInSection = useStore((state) => state.openCreateInSection);
+  const activeId = useStore((state) => state.activeId);
+  const toggleFocus = useStore((state) => state.toggleFocus);
   const moveTask = useStore((state) => state.moveTask);
   const moveTaskToSection = useStore((state) => state.moveTaskToSection);
   const createSection = useStore((state) => state.createSection);
   const renameSection = useStore((state) => state.renameSection);
   const deleteSection = useStore((state) => state.deleteSection);
+  const saveSectionDescription = useStore((state) => state.saveSectionDescription);
   const sectionModalOpen = useStore((state) => state.sectionModalOpen);
   const closeNewSection = useStore((state) => state.closeNewSection);
   const resetFilters = useStore((state) => state.resetFilters);
+  const highlightTaskId = useStore((state) => state.highlightTaskId);
+  const clearTaskHighlight = useStore((state) => state.clearTaskHighlight);
+  const jumpToTask = useStore((state) => state.jumpToTask);
   const { message } = AntApp.useApp();
 
+  // 版本 id → 版本任务，列表里点「版本」标识要能取到它的名称。
+  const versionTasks = useMemo(() => {
+    const map = new Map<string, TaskNode>();
+    const walk = (nodes: TaskNode[]) => {
+      nodes.forEach((node) => {
+        if (isVersionTask(node.fields)) map.set(node.id, node);
+        walk(node.children);
+      });
+    };
+    walk(project?.roots ?? []);
+    return map;
+  }, [project]);
+
   const [dragState, setDragState] = useState<DragState | null>(null);
+  // 鼠标停在哪一条任务上：只记录「这一条有前置任务」的情况，用来高亮它的前置。
+  const depPeek = useStore((state) => state.depPeek);
+  const setDepPeek = useStore((state) => state.setDepPeek);
   const dragIdRef = useRef<string | null>(null);
   const lastDragEndRef = useRef<number>(0);
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const collapsedGroups = useStore((state) => state.collapsedGroups);
+  const toggleCollapsedGroup = useStore((state) => state.toggleCollapsedGroup);
+  const resetCollapsedGroups = useStore((state) => state.resetCollapsedGroups);
   const [sectionModal, setSectionModal] = useState<{
     mode: 'create' | 'rename';
     value: string;
     old?: string;
   } | null>(null);
   const [sectionSaving, setSectionSaving] = useState(false);
+  const [descModal, setDescModal] = useState<{
+    key: string;
+    value: string;
+  } | null>(null);
+  const [descSaving, setDescSaving] = useState(false);
+
+  // 切换视图时别把「前置高亮」的压暗状态留在别的视图里。
+  useEffect(() => () => setDepPeek(null), [setDepPeek]);
 
   // The Topbar "新建分组" button opens the modal through the store. Mirror
   // that signal into the local modal state so the existing create/rename
@@ -185,43 +231,66 @@ export default function ListView() {
     closeNewSection();
   }, [sectionModalOpen, closeNewSection]);
 
+  // 从里程碑卡片跳过来的任务：展开分组、滚到屏幕中间，并短暂高亮这一行。
+  useEffect(() => {
+    if (!highlightTaskId) return;
+    resetCollapsedGroups();
+    const scrollTimer = window.setTimeout(() => {
+      const row = document.querySelector<HTMLElement>(
+        `tr[data-row-key="${highlightTaskId}"]`,
+      );
+      row?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 180);
+    const clearTimer = window.setTimeout(() => clearTaskHighlight(), 2600);
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [highlightTaskId, clearTaskHighlight, resetCollapsedGroups]);
+
+  // 浏览器算 nowrap 文本宽度时按整像素取整，文字实际右边界可能比盒子多出零点
+  // 几像素；这时 text-overflow 也会把最后一个字整个换成「…」，看着就像「后面
+  // 没内容了还显示省略号」。这里只处理「差不到 4px」的情况：按真实文字宽度补
+  // 宽 1px，多出来的像素落在右侧留白里，不会压到「最新进展」。
+  useEffect(() => {
+    const fit = () => {
+      for (const el of document.querySelectorAll<HTMLElement>('.lt-title')) {
+        el.style.removeProperty('width');
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const box = el.getBoundingClientRect();
+        const diff = range.getBoundingClientRect().right - box.right;
+        if (diff > -0.6 && diff < 4) {
+          el.style.width = `${Math.ceil(box.width + diff) + 1}px`;
+        }
+      }
+    };
+    const frame = requestAnimationFrame(fit);
+    window.addEventListener('resize', fit);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', fit);
+    };
+  });
+
   const roots = project?.roots ?? [];
   const declaredSections = project?.sections ?? [];
+  const sectionDescriptions = project?.sectionDescriptions ?? {};
+  const boardTypes = useStore((state) => state.boardTypes);
+  // 序号一律按文件顺序（`collectCodes` 对未筛选的整棵树编号），不随筛选、
+  // 折叠或「已完成沉底」重排；这样列表、看板、甘特图和导出的编号永远一致。
+  const codes = useMemo(() => collectCodes(roots), [roots]);
   const visible = useMemo(
-    () => sortTree(filterTree(roots, filters)),
-    [roots, filters],
+    () => filterByTypes(filterTree(roots, filters), boardTypes),
+    [roots, filters, boardTypes],
   );
   const index = useMemo(() => buildIndex(visible), [visible]);
 
-  // Group roots by their `## section`; ungrouped tasks come first, followed by
-  // declared sections in document order (including empty ones).
-  const groups = useMemo<TaskGroup[]>(() => {
-    const bySection = new Map<string, TaskNode[]>();
-    for (const root of visible) {
-      const key = root.section ?? '';
-      const list = bySection.get(key) ?? [];
-      list.push(root);
-      bySection.set(key, list);
-    }
-    const result: TaskGroup[] = [];
-    if (bySection.has('')) {
-      result.push({ key: '', name: '未分组', isUngrouped: true, roots: bySection.get('')! });
-    }
-    for (const name of declaredSections) {
-      result.push({
-        key: name,
-        name,
-        isUngrouped: false,
-        roots: bySection.get(name) ?? [],
-      });
-    }
-    for (const [key, list] of bySection) {
-      if (key && !declaredSections.includes(key)) {
-        result.push({ key, name: key, isUngrouped: false, roots: list });
-      }
-    }
-    return result;
-  }, [visible, declaredSections]);
+  // Group roots by their `## section`; the same helper drives the export.
+  const groups = useMemo<TaskGroup[]>(
+    () => groupBySection(visible, declaredSections, sectionDescriptions),
+    [visible, declaredSections, sectionDescriptions],
+  );
 
   // Map every task id to its group key, used to detect cross-section drops.
   const sectionOfTask = useMemo(() => {
@@ -234,20 +303,44 @@ export default function ListView() {
     return map;
   }, [groups]);
 
-  const columns: ColumnsType<TableRow> = [
+  const listColumns = useStore((state) => state.listColumns);
+  const fontSize = useStore((state) => state.appearance.fontSize);
+  const showCheckbox = useStore((state) => state.appearance.showCheckbox !== false);
+  // 「最新进展」的两项展示偏好：内容档位（label/date/full）与左右位置。
+  // 都通过容器上的 data-* 交给 CSS 处理，避免给每一行都传一遍 props。
+  const progressDetail = useStore((state) => state.appearance.listProgressDetail ?? 'full');
+  const progressAlign = useStore((state) => state.appearance.listProgressAlign ?? 'right');
+  // Column widths are tuned for the default 14px row text; scale them with the
+  // font-size setting so larger text never overflows its cell (and never
+  // forces a horizontal scrollbar because of content spilling out).
+  const widthScale = (12 + fontSizeBump(fontSize)) / 14;
+  const colWidth = (key: ListColumnKey) =>
+    Math.round(LIST_COLUMN_WIDTHS[key] * widthScale);
+
+  const allColumns: ColumnsType<TableRow> = [
     {
       title: '任务',
       key: 'task',
       render: (_, row) => {
-        const codes = collectCodes(
-          groups.find((group) => group.key === sectionOfTask.get(row.id))?.roots ?? [],
-        );
         // Task indent is stored as leading spaces (2 per level) in Markdown.
         const level = Math.max(0, Math.floor(row.indent / 2));
         const hasChildren = (row.children?.length ?? 0) > 0;
         const expanded = !collapsed[row.id];
+        const isTitle = isTitleTask(row.fields);
+        const isVersion = isVersionTask(row.fields);
+        const versionOf = row.fields.version
+          ? versionTasks.get(row.fields.version)
+          : undefined;
+        const focused = isFocused(row.fields);
         return (
-          <div className="lt-task" style={{ paddingLeft: level * 15 }}>
+          <div
+            className={`lt-task${isTitle ? ' is-title' : ''}${
+              isVersion ? ' is-version-task' : ''
+            }`}
+            style={{ paddingLeft: level * 15 }}
+          >
+            {/* One flat flex row for every task, title types included: the code
+                and checkbox stay in the same rail so the list scans cleanly. */}
             {hasChildren ? (
               <button
                 type="button"
@@ -263,24 +356,79 @@ export default function ListView() {
             ) : (
               <span className="chevron-spacer" />
             )}
-            <span
-              className="lt-check"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <Checkbox
-                checked={row.done}
-                onChange={() => {
-                  void toggleDone(row).catch((error: unknown) => {
-                    message.error(error instanceof Error ? error.message : '更新失败');
-                  });
-                }}
-              />
-            </span>
+            {showCheckbox ? (
+              <span
+                className="lt-check"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <Checkbox
+                  checked={row.done}
+                  onChange={() => {
+                    void toggleDone(row).catch((error: unknown) => {
+                      message.error(error instanceof Error ? error.message : '更新失败');
+                    });
+                  }}
+                />
+              </span>
+            ) : null}
             <span className="lt-code">{codes.get(row.id)}</span>
+            {/* Hover actions share one zero-net-width slot: the focus pin sits
+                inline before the add button so it never widens the
+                number→title gap. */}
+            <span className="lt-hover-actions">
+              <Tooltip title={focused ? '取消今日关注' : '标记到今日关注'}>
+                <Button
+                  type="text"
+                  size="small"
+                  className={`lt-focus-btn${focused ? ' is-on' : ''}`}
+                  aria-label={focused ? '取消今日关注' : '标记到今日关注'}
+                  icon={focused ? <PushpinFilled /> : <PushpinOutlined />}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (!activeId) return;
+                    void toggleFocus(activeId, row.id, focused).catch(
+                      (error: unknown) => {
+                        message.error(
+                          error instanceof Error ? error.message : '更新标记失败',
+                        );
+                      },
+                    );
+                  }}
+                />
+              </Tooltip>
+              <Tooltip title="添加子任务">
+                <Button
+                  type="text"
+                  size="small"
+                  className="lt-add-child"
+                  aria-label="添加子任务"
+                  icon={<PlusOutlined />}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openCreate(row.id);
+                  }}
+                />
+              </Tooltip>
+            </span>
+            {showsCreated(row.fields) ? (
+              <CreatedChip created={row.fields.created} />
+            ) : null}
+            {isVersion ? <VersionTypeTag /> : null}
             <span className={`lt-title${row.done ? ' is-done' : ''}`} title={row.title}>
               {row.title}
             </span>
-            {!row.done && row.progress.length > 0 ? (
+            {versionOf ? (
+              <VersionChip
+                title={versionOf.title}
+                onClick={() => jumpToTask(versionOf.id)}
+              />
+            ) : row.fields.version ? (
+              <span className="version-chip is-missing" title="关联的版本任务已不存在">
+                版本失效
+              </span>
+            ) : null}
+            {/* 标题行只承担分组作用，不展示最新进展；已完成任务（含普通任务）同样保留最新进展。 */}
+            {!isTitle && row.progress.length > 0 ? (
               <span className="lt-progress">
                 <LatestProgress progress={row.progress} inline />
               </span>
@@ -290,9 +438,9 @@ export default function ListView() {
       },
     },
     {
-      title: '负责人',
+      title: '联系人',
       key: 'owner',
-      width: 88,
+      width: colWidth('owner'),
       render: (_, row) =>
         row.fields.owner ? (
           <OwnerChip name={row.fields.owner} />
@@ -303,13 +451,13 @@ export default function ListView() {
     {
       title: '优先级',
       key: 'priority',
-      width: 64,
+      width: colWidth('priority'),
       render: (_, row) => <PriorityPill priority={row.fields.priority} />,
     },
     {
       title: '重要性',
       key: 'importance',
-      width: 64,
+      width: colWidth('importance'),
       render: (_, row) =>
         row.fields.importance ? (
           <ImportanceChip importance={row.fields.importance} />
@@ -320,7 +468,7 @@ export default function ListView() {
     {
       title: '截止',
       key: 'due',
-      width: 152,
+      width: colWidth('due'),
       render: (_, row) =>
         row.fields.due ? (
           <DueChip due={row.fields.due} done={row.done} />
@@ -331,7 +479,7 @@ export default function ListView() {
     {
       title: '周期',
       key: 'cycle',
-      width: 64,
+      width: colWidth('cycle'),
       render: (_, row) =>
         row.fields.cycle ? (
           <CycleChip cycle={row.fields.cycle} />
@@ -342,10 +490,15 @@ export default function ListView() {
     {
       title: '状态',
       key: 'status',
-      width: 78,
+      width: colWidth('status'),
       render: (_, row) => <StatusPill done={row.done} />,
     },
   ];
+
+  // 「任务」列承载勾选、编号与标题，始终保留；其余列按用户的列设置显隐。
+  const columns = allColumns.filter(
+    (column) => column.key === 'task' || listColumns[column.key as ListColumnKey],
+  );
 
   if (!project) return null;
   if (visible.length === 0 && groups.every((group) => group.roots.length === 0)) {
@@ -377,6 +530,20 @@ export default function ListView() {
       message.error(error instanceof Error ? error.message : '操作失败');
     } finally {
       setSectionSaving(false);
+    }
+  };
+
+  const submitDescModal = async () => {
+    if (!descModal) return;
+    setDescSaving(true);
+    try {
+      await saveSectionDescription(descModal.key, descModal.value.trim());
+      message.success('分组描述已保存');
+      setDescModal(null);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '保存失败');
+    } finally {
+      setDescSaving(false);
     }
   };
 
@@ -439,12 +606,18 @@ export default function ListView() {
     return (
       <Table<TableRow>
         className="wbs-table is-sortable group-table"
+        // Fixed layout keeps the column widths stable: without it the browser
+        // lets a long task title eat the other columns.
+        tableLayout="fixed"
         columns={columns}
         dataSource={toRows(group.roots)}
         rowKey="id"
         pagination={false}
         size="small"
-        scroll={{ x: 1000 }}
+        // No `scroll.x`: the table always fills the available width and the
+        // browser shrinks the fixed-width columns proportionally when the panel
+        // gets narrow, so a horizontal scrollbar only shows up if content would
+        // still overflow — which the cell clipping rules prevent.
         expandable={{
           expandedRowKeys,
           indentSize: 0,
@@ -452,7 +625,18 @@ export default function ListView() {
           // next to the checkbox; antd must not render its own icon column.
           expandIcon: () => null,
         }}
-        rowClassName={(row) => (row.done ? 'table-row-done' : '')}
+        rowClassName={(row) =>
+          [
+            row.done ? 'table-row-done' : '',
+            isTitleTask(row.fields) ? 'table-row-title' : '',
+            isVersionTask(row.fields) ? 'table-row-version' : '',
+            row.id === highlightTaskId ? 'is-jump-target' : '',
+            depPeek?.src === row.id ? 'is-dep-src' : '',
+            depPeek?.deps.includes(row.id) ? 'is-dep-hl' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')
+        }
         onRow={(row) => {
           const dragging = dragState?.dragId === row.id;
           const isTarget = Boolean(dragState?.indicatorId) && dragState?.indicatorId === row.id;
@@ -470,9 +654,14 @@ export default function ListView() {
           return {
             className: classNames,
             draggable: true,
-            title: cross
-              ? '松开以把任务移动到该分组，并自动重排序号'
-              : '拖动到上/下边缘调整顺序并匹配目标层级，拖到正中设为子任务；拖到其他分组的任务或分组头可跨组移动',
+            onMouseEnter: () => {
+              if (dragState) return;
+              const related = relatedTaskIds(row.fields);
+              setDepPeek(related.length ? { src: row.id, deps: related } : null);
+            },
+            onMouseLeave: () => {
+              if (useStore.getState().depPeek?.src === row.id) setDepPeek(null);
+            },
             onDragStart: (event: DragEvent<HTMLElement>) => {
               if (isInteractive(event.target)) {
                 event.preventDefault();
@@ -551,7 +740,12 @@ export default function ListView() {
   };
 
   return (
-    <div className="list-view has-groups">
+    <div
+      className="list-view has-groups"
+      data-progress-detail={progressDetail}
+      data-progress-align={progressAlign}
+      data-dep-peek={depPeek ? '1' : undefined}
+    >
       {groups.map((group) => {
         const collapsedGroup = Boolean(collapsedGroups[group.key]);
         const dropActive =
@@ -566,6 +760,7 @@ export default function ListView() {
             className={`task-group${dropActive ? ' is-drop-target' : ''}`}
             key={group.key || '__ungrouped__'}
           >
+            {!group.hideHead ? (
             <div
               className={`group-head${collapsedGroup ? ' is-collapsed' : ''}`}
               onDragOver={(event: DragEvent<HTMLDivElement>) => {
@@ -617,12 +812,7 @@ export default function ListView() {
               <button
                 type="button"
                 className="group-toggle"
-                onClick={() =>
-                  setCollapsedGroups((state) => ({
-                    ...state,
-                    [group.key]: !state[group.key],
-                  }))
-                }
+                onClick={() => toggleCollapsedGroup(group.key)}
                 aria-label={collapsedGroup ? '展开分组' : '收起分组'}
               >
                 {collapsedGroup ? <RightOutlined /> : <DownOutlined />}
@@ -631,6 +821,18 @@ export default function ListView() {
                 {group.name}
               </span>
               <span className="group-meta">共 {count} 项</span>
+              {!group.isUngrouped ? (
+                <button
+                  type="button"
+                  className={`group-desc${group.description ? '' : ' is-empty'}`}
+                  title={group.description ? group.description : '添加分组描述'}
+                  onClick={() =>
+                    setDescModal({ key: group.key, value: group.description ?? '' })
+                  }
+                >
+                  {group.description || '添加描述'}
+                </button>
+              ) : null}
               <div className="group-actions">
                 <Tooltip title="在此分组新建任务">
                   <Button
@@ -679,6 +881,7 @@ export default function ListView() {
                 ) : null}
               </div>
             </div>
+            ) : null}
             {!collapsedGroup ? renderTable(group) : null}
           </section>
         );
@@ -705,6 +908,31 @@ export default function ListView() {
             )
           }
           onPressEnter={() => void submitSectionModal()}
+        />
+      </Modal>
+
+      <Modal
+        open={Boolean(descModal)}
+        onCancel={() => setDescModal(null)}
+        onOk={() => void submitDescModal()}
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={descSaving}
+        title="分组描述"
+        destroyOnClose
+      >
+        <div className="field-hint">描述显示在分组标题右侧，留空可清除。</div>
+        <Input
+          autoFocus
+          value={descModal?.value ?? ''}
+          maxLength={200}
+          placeholder="输入分组描述，例如：本周重点跟进的事项"
+          onChange={(event) =>
+            setDescModal((state) =>
+              state ? { ...state, value: event.target.value } : state,
+            )
+          }
+          onPressEnter={() => void submitDescModal()}
         />
       </Modal>
     </div>

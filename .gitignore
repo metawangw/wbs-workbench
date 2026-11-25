@@ -12,6 +12,7 @@ data/
 .wbs-tray.pid
 *.log
 *.tmp
+.tmp-*
 .env
 .env.local
 

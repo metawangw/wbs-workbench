@@ -71,47 +71,64 @@ html[data-theme='dark'] .progress-composer .ant-input:focus {
 html[data-theme='dark'] .filter-select.ant-select:hover .ant-select-selector {
   border-color: #4b5a70;
 }
+html[data-theme='dark'] .filter-type-btn.ant-btn {
+  border-color: #38465c;
+}
+html[data-theme='dark'] .filter-type-btn.ant-btn:hover {
+  border-color: #4b5a70;
+}
+html[data-theme='dark'] .filter-type-btn.is-active.ant-btn {
+  border-color: var(--primary);
+}
 
 html[data-theme='dark'] .project-p0,
 html[data-theme='dark'] .prio-pill.p0 {
-  color: #fda29b;
-  background: #4a1f1f;
+  color: var(--p0-text);
+  background: var(--p0-weak);
 }
 html[data-theme='dark'] .prio-pill.p1 {
-  color: #fec84b;
-  background: #4a3212;
+  color: var(--p1-text);
+  background: var(--p1-weak);
 }
 html[data-theme='dark'] .prio-pill.p2 {
-  color: #c2cbd8;
-  background: var(--surface-muted);
+  color: var(--p2-text);
+  background: var(--p2-weak);
 }
 
 html[data-theme='dark'] .group-dot.p0,
 html[data-theme='dark'] .mini-dot.p0 {
-  background: #f04438;
+  background: var(--p0);
 }
 html[data-theme='dark'] .group-dot.p1,
 html[data-theme='dark'] .mini-dot.p1 {
-  background: #f79009;
+  background: var(--p1);
 }
 
 html[data-theme='dark'] .group-title.tone-p0 {
-  color: #fda29b;
+  color: var(--p0-text);
 }
 html[data-theme='dark'] .group-title.tone-p1 {
-  color: #fec84b;
+  color: var(--p1-text);
 }
 html[data-theme='dark'] .group-title.tone-p2 {
-  color: #c2cbd8;
+  color: var(--p2-text);
 }
 
-html[data-theme='dark'] .status-chip.ok,
+html[data-theme='dark'] .status-chip {
+  color: color-mix(in srgb, var(--chip, #98a2b3) 66%, #ffffff);
+  background: color-mix(in srgb, var(--chip, #667085) 20%, transparent);
+  border-color: color-mix(in srgb, var(--chip, #667085) 40%, transparent);
+}
+html[data-theme='dark'] .status-def-chip {
+  color: color-mix(in srgb, var(--sc, #98a2b3) 66%, #ffffff);
+  background: color-mix(in srgb, var(--sc, #667085) 20%, transparent);
+  border-color: color-mix(in srgb, var(--sc, #667085) 40%, transparent);
+}
 html[data-theme='dark'] .status-pill.done {
   background: #123a2b;
   border-color: #1e5e45;
   color: #6ee7b7;
 }
-html[data-theme='dark'] .status-chip.active,
 html[data-theme='dark'] .status-pill.open {
   color: #8ab4ff;
   background: #1b2c4a;
@@ -209,6 +226,12 @@ html[data-theme='dark'] .gantt-head-left {
 html[data-theme='dark'] .gantt-cell-left {
   background: var(--panel);
 }
+html[data-theme='dark'] .gantt-row.is-title-task .gantt-cell-left {
+  background: color-mix(in srgb, var(--title-color, var(--primary)) 26%, var(--panel));
+}
+html[data-theme='dark'] .gantt-row.is-title-task:hover .gantt-cell-left {
+  background: color-mix(in srgb, var(--title-color, var(--primary)) 36%, var(--panel));
+}
 html[data-theme='dark'] .gantt-row:hover,
 html[data-theme='dark'] .gantt-row:hover .gantt-cell-left {
   background: var(--surface-soft);
@@ -229,8 +252,7 @@ html[data-theme='dark'] .gantt-unscheduled {
 /* --- 设置面板深色补充 --- */
 html[data-theme='dark'] .settings-nav,
 html[data-theme='dark'] .brand-preview,
-html[data-theme='dark'] .dir-current code,
-html[data-theme='dark'] .appearance-preview-body {
+html[data-theme='dark'] .dir-current code {
   background: var(--surface);
 }
 html[data-theme='dark'] .settings-nav-item:hover {
@@ -239,9 +261,6 @@ html[data-theme='dark'] .settings-nav-item:hover {
 html[data-theme='dark'] .color-swatch {
   border-color: var(--panel);
   box-shadow: 0 0 0 1px var(--border);
-}
-html[data-theme='dark'] .appearance-preview-bar {
-  background: #3b82f6 !important;
 }
 html[data-theme='dark'] .side-settings-btn {
   background: var(--surface);
@@ -258,4 +277,42 @@ html[data-theme='dark'] .stat-card {
 }
 html[data-theme='dark'] .gantt-legend-dot.planned {
   background: #4483ff;
+}
+
+/* --- 设置面板 Obsidian 风格深色适配 --- */
+html[data-theme='dark'] .ob-settings .settings-nav-item.is-active,
+html[data-theme='dark'] .ob-settings .settings-nav-item.is-active .anticon {
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
+}
+html[data-theme='dark'] .ob-pane h3,
+html[data-theme='dark'] .ob-card-title,
+html[data-theme='dark'] .ob-row-info strong,
+html[data-theme='dark'] .ob-card-markers .ob-card-title,
+html[data-theme='dark'] .ob-card-markers .ob-row-info strong {
+  color: #fff;
+}
+html[data-theme='dark'] .ob-color-button {
+  border-color: var(--panel);
+}
+
+/* 今日关注贴纸：暗色下保留纸张底色，只加深投影与胶带。 */
+html[data-theme='dark'] .focus-note {
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.45),
+    0 14px 26px -18px rgba(0, 0, 0, 0.9);
+}
+
+html[data-theme='dark'] .focus-note::before {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+html[data-theme='dark'] .focus-empty-icon {
+  background: #3a2f14;
+  color: #f5b74a;
+}
+
+html[data-theme='dark'] .lt-focus-btn.ant-btn:hover {
+  background: #3a2f14;
 }

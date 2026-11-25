@@ -34,20 +34,21 @@ const NODE_BIN = [LOCAL_NODE, LEGACY_LOCAL_NODE].find((file) =>
 ) ?? process.execPath;
 const DIST_INDEX = path.join(ROOT, 'web', 'dist', 'index.html');
 
+// Checked lazily: the `--stop` path must not pay the cost of spawning
+// `where.exe npm`. Start/build paths call this only when they need it.
+let cachedSystemNpm = null;
 function hasSystemNpm() {
+  if (cachedSystemNpm !== null) return cachedSystemNpm;
   try {
     execFileSync(process.platform === 'win32' ? 'where.exe' : 'which', ['npm'], {
       stdio: 'ignore',
     });
-    return true;
+    cachedSystemNpm = true;
   } catch {
-    return false;
+    cachedSystemNpm = false;
   }
+  return cachedSystemNpm;
 }
-
-// The minimal runtime ships only node.exe, so npm may be unavailable on the
-// target machine. In that case the prebuilt web/dist is used as-is.
-const SYSTEM_NPM = hasSystemNpm();
 
 function runtimeEnv() {
   const env = { ...process.env };
@@ -293,7 +294,7 @@ function runNpm(args) {
 async function ensureDependencies() {
   const tsxCli = path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
   if (existsSync(tsxCli)) return;
-  if (!SYSTEM_NPM) {
+  if (!hasSystemNpm()) {
     throw new Error(
       '缺少运行依赖，且未找到可用的 npm；请使用完整迁移包或安装 Node.js 20+。',
     );
@@ -303,7 +304,7 @@ async function ensureDependencies() {
 }
 
 async function buildWeb() {
-  if (existsSync(DIST_INDEX) && !SYSTEM_NPM) {
+  if (existsSync(DIST_INDEX) && !hasSystemNpm()) {
     log('使用包内已构建的前端（未内置 npm，跳过构建）。');
     return;
   }
@@ -357,7 +358,7 @@ async function waitForServer(port, child) {
   throw new Error('服务启动超时，请查看上方日志。');
 }
 
-function stopBackground() {
+async function stopBackground() {
   const runtime = readRuntime();
   const explicitPort = process.env.PORT !== undefined;
   const entries = Object.entries(runtime).filter(
@@ -369,29 +370,36 @@ function stopBackground() {
     return;
   }
 
+  // Fast stop path: the runtime file is written by this launcher itself, so a
+  // plain HTTP probe of our own API is enough to confirm the port still hosts
+  // this WBS service. This avoids spawning PowerShell/WMI (several seconds of
+  // cold start) on the exit path. If the probe fails the service is already
+  // gone, so there is nothing to kill and we just clear the stale entry.
   let stopped = 0;
   for (const [port, info] of entries) {
+    const portNumber = Number(port);
+    const alive = await isCurrentWbs(portNumber);
+
+    if (!alive) {
+      forgetRuntime(portNumber);
+      log(`端口 ${port} 的服务已不在运行，清理记录。`);
+      continue;
+    }
+
     const pid = Number(info?.pid);
-    if (!Number.isInteger(pid) || pid <= 0) {
-      forgetRuntime(Number(port));
-      continue;
+    if (Number.isInteger(pid) && pid > 0) {
+      try {
+        execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
+          stdio: 'ignore',
+          timeout: 5000,
+        });
+        stopped++;
+        log(`已停止后台服务（端口 ${port}，PID ${pid}）。`);
+      } catch {
+        log(`停止 PID ${pid} 失败，服务可能已自行退出。`);
+      }
     }
-    if (!belongsToProject(pid, Number(port))) {
-      log(`端口 ${port} 记录的进程 ${pid} 已不属于本项目，跳过。`);
-      forgetRuntime(Number(port));
-      continue;
-    }
-    try {
-      execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
-        stdio: 'ignore',
-        timeout: 5000,
-      });
-      stopped++;
-      log(`已停止后台服务（端口 ${port}，PID ${pid}）。`);
-    } catch {
-      log(`停止 PID ${pid} 失败，可能已经退出。`);
-    }
-    forgetRuntime(Number(port));
+    forgetRuntime(portNumber);
   }
   if (!stopped) log('没有发现正在运行的 WBS 后台服务。');
 }
@@ -401,7 +409,7 @@ async function main() {
   log(`Node 运行时：${NODE_BIN}`);
 
   if (STOP) {
-    stopBackground();
+    await stopBackground();
     return;
   }
 

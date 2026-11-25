@@ -1,12 +1,35 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { CheckCircleFilled, StarFilled } from '@ant-design/icons';
+import DOMPurify from 'dompurify';
+import { marked } from 'marked';
+import { CalendarOutlined, CheckCircleFilled, TagOutlined } from '@ant-design/icons';
 import {
   dueBadge,
+  importanceTone,
   priorityMeta,
+  splitOwners,
   type ProgressEntry,
 } from '@wbs/shared';
+import { projectStatusColor } from '../lib/settings';
+import { useStore } from '../store';
+import MarkdownText from './MarkdownText';
+
+/**
+ * 单行展示用的行内 Markdown：只保留 **加粗**、*斜体*、`代码`、[链接]、
+ * ~~删除线~~ 这些行内标记。列表里的最新进展要挤在一行里，块级语法（标题、
+ * 列表、表格）的标记符号直接按原文显示，避免撑破行高。
+ */
+export function InlineMarkdown({ text }: { text: string }) {
+  const html = useMemo(() => {
+    const rendered = marked.parseInline(text, {
+      gfm: true,
+      breaks: false,
+    }) as string;
+    return DOMPurify.sanitize(rendered, { USE_PROFILES: { html: true } });
+  }, [text]);
+  return <span dangerouslySetInnerHTML={{ __html: html }} />;
+}
 
 export const IMPORTANCE_OPTIONS = ['高', '中', '低'];
 
@@ -25,37 +48,15 @@ export function brandGlyphStyle(icon: string, baseSize: number): CSSProperties {
   };
 }
 
-const AVATAR_COLORS = [
-  '#2563eb',
-  '#0ea5e9',
-  '#12b76a',
-  '#f79009',
-  '#f04438',
-  '#7a5af8',
-  '#0ba5ec',
-  '#ee46bc',
-];
-
-export function avatarColor(name: string): string {
-  let hash = 0;
-  for (let index = 0; index < name.length; index++) {
-    hash = (hash * 31 + name.charCodeAt(index)) >>> 0;
-  }
-  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
-}
-
 export function OwnerChip({ name }: { name?: string }) {
-  if (!name) return null;
+  const owners = splitOwners(name);
+  if (owners.length === 0) return null;
+  const text = owners.join('、');
   return (
     <span className="owner-chip">
-      <span
-        className="owner-avatar"
-        style={{ background: avatarColor(name) }}
-        aria-hidden="true"
-      >
-        {name.slice(0, 1)}
+      <span className="owner-name" title={text}>
+        {text}
       </span>
-      <span className="owner-name">{name}</span>
     </span>
   );
 }
@@ -72,9 +73,13 @@ export function PriorityPill({ priority }: { priority?: string }) {
 
 export function ImportanceChip({ importance }: { importance?: string }) {
   if (!importance) return null;
+  // Same visual language as the priority pill: colour carries the meaning,
+  // no icon needed.
   return (
-    <span className="importance-chip" title={`重要性：${importance}`}>
-      <StarFilled />
+    <span
+      className={`importance-chip imp-${importanceTone(importance)}`}
+      title={`重要性：${importance}`}
+    >
       {importance}
     </span>
   );
@@ -110,16 +115,19 @@ export function CycleChip({ cycle }: { cycle?: string }) {
   return <span className="cycle-chip">{cycle}</span>;
 }
 
-function progressTime(entry: ProgressEntry): string {
-  return `${entry.date} ${entry.time ?? ''}`.trim();
+/** Creation date shown before a task name: calendar icon + short MM-DD. */
+export function CreatedChip({ created }: { created?: string }) {
+  if (!created || !/^\d{4}-\d{2}-\d{2}$/.test(created)) return null;
+  return (
+    <span className="created-chip" title={`创建日期 ${created}`}>
+      <CalendarOutlined />
+      <span className="created-chip-date">{created.slice(5)}</span>
+    </span>
+  );
 }
 
-function progressPlainText(entry: ProgressEntry): string {
-  return entry.text
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/[*_`>#]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+function progressTime(entry: ProgressEntry): string {
+  return `${entry.date} ${entry.time ?? ''}`.trim();
 }
 
 interface FloatPosition {
@@ -130,7 +138,7 @@ interface FloatPosition {
 function clampFloatPosition(x: number, y: number): FloatPosition {
   const margin = 12;
   const width = Math.min(340, window.innerWidth - margin * 2);
-  const estimatedHeight = 170;
+  const estimatedHeight = 300;
   const left = Math.min(
     Math.max(margin, x + 16),
     window.innerWidth - width - margin,
@@ -179,7 +187,6 @@ export function LatestProgress({
   const latest = [...progress].sort((a, b) =>
     progressTime(b).localeCompare(progressTime(a)),
   )[0];
-  const plain = progressPlainText(latest);
   const date = latest.date.slice(5);
 
   const move = (x: number, y: number) => {
@@ -214,7 +221,9 @@ export function LatestProgress({
       >
         <span className="latest-progress-label">最新进展</span>
         <span className="latest-progress-date">{date}</span>
-        <span className="latest-progress-text">{plain}</span>
+        <span className="latest-progress-text">
+          <InlineMarkdown text={latest.text} />
+        </span>
         {progress.length > 1 ? (
           <span className="latest-progress-count">共 {progress.length} 条</span>
         ) : null}
@@ -235,7 +244,7 @@ export function LatestProgress({
                   {latest.author ? ` · ${latest.author}` : ''}
                 </span>
               </div>
-              <div className="progress-float-text">{plain}</div>
+              <MarkdownText text={latest.text} className="progress-float-md" />
               {progress.length > 1 ? (
                 <div className="progress-float-foot">共 {progress.length} 条进展</div>
               ) : null}
@@ -244,6 +253,40 @@ export function LatestProgress({
           )
         : null}
     </>
+  );
+}
+
+/** 普通任务上的「版本」标识：点一下跳到所属版本任务。 */
+export function VersionChip({
+  title,
+  onClick,
+}: {
+  title: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="version-chip"
+      title={`版本：${title}（点击跳转）`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+    >
+      <TagOutlined />
+      <span>版本</span>
+    </button>
+  );
+}
+
+/** 版本任务自身的类型标记，跟标题任务一样只是「它是什么」。 */
+export function VersionTypeTag() {
+  return (
+    <span className="version-type-tag">
+      <TagOutlined />
+      版本
+    </span>
   );
 }
 
@@ -257,18 +300,13 @@ export function StatusPill({ done }: { done: boolean }) {
 }
 
 export function ProjectStatusChip({ status }: { status?: string }) {
+  const statuses = useStore((state) => state.statuses);
   if (!status) return null;
+  const color = projectStatusColor(status, statuses);
   return (
-    <span className={`status-chip ${statusTone(status)}`}>
+    <span className="status-chip" style={{ '--chip': color } as CSSProperties}>
       <span className="status-chip-dot" />
       {status}
     </span>
   );
-}
-
-export function statusTone(status?: string): 'ok' | 'active' | 'muted' {
-  if (!status) return 'muted';
-  if (/稳定|运营|完成|正常/.test(status)) return 'ok';
-  if (/归档|停止|暂停|下线/.test(status)) return 'muted';
-  return 'active';
 }

@@ -1,14 +1,24 @@
-import { App as AntApp, Button, Checkbox, Tooltip } from 'antd';
-import { CaretRightOutlined, PlusOutlined } from '@ant-design/icons';
-import type { TaskNode } from '@wbs/shared';
+import { App as AntApp, Checkbox } from 'antd';
+import { CaretRightOutlined } from '@ant-design/icons';
+import {
+  findTask,
+  isTitleTask,
+  isVersionTask,
+  relatedTaskIds,
+  showsCreated,
+  type TaskNode,
+} from '@wbs/shared';
 import { useStore } from '../store';
 import {
+  CreatedChip,
   CycleChip,
   DueChip,
   ImportanceChip,
   LatestProgress,
   OwnerChip,
   PriorityPill,
+  VersionChip,
+  VersionTypeTag,
 } from './atoms';
 
 interface TaskRowProps {
@@ -22,12 +32,24 @@ export default function TaskRow({ node, code, codes }: TaskRowProps) {
   const toggleCollapsed = useStore((state) => state.toggleCollapsed);
   const toggleDone = useStore((state) => state.toggleDone);
   const openTask = useStore((state) => state.openTask);
-  const openCreate = useStore((state) => state.openCreate);
+  const showCheckbox = useStore((state) => state.appearance.showCheckbox !== false);
+  const depPeek = useStore((state) => state.depPeek);
+  const setDepPeek = useStore((state) => state.setDepPeek);
+  const project = useStore((state) => state.project);
+  const jumpToTask = useStore((state) => state.jumpToTask);
   const { message } = AntApp.useApp();
+
+  const isDepTarget = Boolean(depPeek?.deps.includes(node.id));
+  const isDepSource = depPeek?.src === node.id;
+  const versionOf = node.fields.version
+    ? findTask(project?.roots ?? [], node.fields.version)
+    : undefined;
 
   const hasChildren = node.children.length > 0;
   const expanded = !collapsed;
-  const showProgress = !node.done && node.progress.length > 0;
+  const isVersion = isVersionTask(node.fields);
+  // 已完成任务（含普通任务）同样展示最新进展；仅标题任务不展示。
+  const showProgress = !isTitleTask(node.fields) && node.progress.length > 0;
 
   const handleToggle = () => {
     void toggleDone(node).catch((error: unknown) => {
@@ -38,11 +60,22 @@ export default function TaskRow({ node, code, codes }: TaskRowProps) {
   return (
     <div className="task-node">
       <div
-        className={`task-row${node.done ? ' is-done' : ''}`}
+        className={`task-row${node.done ? ' is-done' : ''}${
+          isTitleTask(node.fields) ? ' is-title-task' : ''
+        }${isVersion ? ' is-version-task' : ''}${isDepTarget ? ' is-dep-hl' : ''}${
+          isDepSource ? ' is-dep-src' : ''
+        }`}
         role="button"
         tabIndex={0}
         aria-label={`${code} ${node.title}`}
         onClick={() => openTask(node.id)}
+        onMouseEnter={() => {
+          const related = relatedTaskIds(node.fields);
+          setDepPeek(related.length ? { src: node.id, deps: related } : null);
+        }}
+        onMouseLeave={() => {
+          if (useStore.getState().depPeek?.src === node.id) setDepPeek(null);
+        }}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
@@ -68,40 +101,51 @@ export default function TaskRow({ node, code, codes }: TaskRowProps) {
               <span className="chevron-spacer" />
             )}
 
-            <span className="task-checkbox" onClick={(event) => event.stopPropagation()}>
-              <Checkbox checked={node.done} onChange={handleToggle} />
-            </span>
+            {showCheckbox ? (
+              <span className="task-checkbox" onClick={(event) => event.stopPropagation()}>
+                <Checkbox checked={node.done} onChange={handleToggle} />
+              </span>
+            ) : null}
 
             <span className="wbs-code">{code}</span>
+
+            {isVersionTask(node.fields) ? <VersionTypeTag /> : null}
+
+            {showsCreated(node.fields) ? (
+              <CreatedChip created={node.fields.created} />
+            ) : null}
+
+            {/* 优先级 / 重要性贴在序号之后，避免再占一整行，卡片能放下更多任务。 */}
+            {node.fields.priority || node.fields.importance ? (
+              <span className="task-badges">
+                <PriorityPill priority={node.fields.priority} />
+                <ImportanceChip importance={node.fields.importance} />
+              </span>
+            ) : null}
 
             <span className="task-title" title={node.title}>
               {node.title}
             </span>
 
-            <div className="row-actions">
-              <Tooltip title="添加子任务">
-                <Button
-                  type="text"
-                  size="small"
-                  className="row-action-btn"
-                  aria-label="添加子任务"
-                  icon={<PlusOutlined />}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    openCreate(node.id);
-                  }}
-                />
-              </Tooltip>
-            </div>
+            {versionOf ? (
+              <VersionChip
+                title={versionOf.title}
+                onClick={() => jumpToTask(versionOf.id)}
+              />
+            ) : node.fields.version ? (
+              <span className="version-chip is-missing" title="关联的版本任务已不存在">
+                版本失效
+              </span>
+            ) : null}
           </div>
 
-          <div className="task-meta">
-            <PriorityPill priority={node.fields.priority} />
-            <CycleChip cycle={node.fields.cycle} />
-            <DueChip due={node.fields.due} done={node.done} />
-            <ImportanceChip importance={node.fields.importance} />
-            <OwnerChip name={node.fields.owner} />
-          </div>
+          {node.fields.cycle || node.fields.due || node.fields.owner ? (
+            <div className="task-meta">
+              <CycleChip cycle={node.fields.cycle} />
+              <DueChip due={node.fields.due} done={node.done} />
+              <OwnerChip name={node.fields.owner} />
+            </div>
+          ) : null}
 
           {showProgress ? <LatestProgress progress={node.progress} /> : null}
         </div>

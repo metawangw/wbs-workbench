@@ -3,8 +3,20 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import type { ProjectDoc, TaskFields, TaskNode } from '@wbs/shared';
 import {
+  PROJECT_PAGE_KEYS,
+  isVersionTask,
+  normalizeMilestoneTaskIds,
+  normalizeProjectPageOrder,
+  normalizeProjectTags,
+  projectPageEnd,
+  projectPageStart,
+  type ProjectPageKey,
+} from '@wbs/shared';
+import {
+  formatSectionHeading,
   indentWidth,
   parseProject,
+  parseSectionHeading,
   serializeTaskLine,
 } from '@wbs/shared/parser';
 import {
@@ -26,10 +38,17 @@ const FIELD_KEYS = [
   'importance',
   'start',
   'due',
+  'created',
+  'showCreated',
+  'isTitle',
+  'isVersion',
+  'focus',
+  'focusColor',
   'cycle',
   'confirm',
   'progress',
   'deps',
+  'version',
 ] as const;
 
 export class HttpError extends Error {
@@ -136,6 +155,23 @@ function normalizeText(value: unknown, label: string, maxLength: number): string
   return text;
 }
 
+/** 进展正文允许多行：只去首尾空白、合并多余空行，保留换行。 */
+function normalizeProgressText(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new HttpError(400, '进展内容必须是文本');
+  }
+  const text = value
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  if (!text) throw new HttpError(400, '进展内容不能为空');
+  if (text.length > 2000) throw new HttpError(400, '进展内容不能超过 2000 个字符');
+  return text;
+}
+
 /** Validate a `YYYY-MM-DD` field and throw a 400 with the given label. */
 function assertDateField(text: string, label: string): void {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
@@ -158,6 +194,7 @@ function normalizeFieldValue(key: string, value: unknown): string {
   if (key === 'priority') text = text.toUpperCase();
   if (key === 'start') assertDateField(text, '开始日期');
   if (key === 'due') assertDateField(text, '截止日期');
+  if (key === 'created') assertDateField(text, '创建日期');
   if (key === 'progress') {
     if (!/^\d{1,3}$/.test(text) || Number(text) > 100) {
       throw new HttpError(400, '进度百分比必须是 0-100 的整数');
@@ -170,6 +207,9 @@ function normalizeFieldValue(key: string, value: unknown): string {
       throw new HttpError(400, '前置任务 ID 格式非法');
     }
     text = [...new Set(ids)].join(',');
+  }
+  if (key === 'version' && !/^[A-Za-z0-9_-]{1,64}$/.test(text)) {
+    throw new HttpError(400, '版本任务 ID 格式非法');
   }
   if (text.length > 120) throw new HttpError(400, `字段 ${key} 过长`);
   if (/[[\]]/.test(text)) throw new HttpError(400, `字段 ${key} 不能包含 [ 或 ]`);
@@ -207,6 +247,68 @@ function taskTitle(value: unknown): string {
   return title;
 }
 
+/**
+ * 版本任务与普通任务是「一对多」：普通任务的截止日期永远等于所属版本的
+ * 截止日期，写文件时统一在这里覆盖，避免前后端各算一份。
+ */
+function applyVersionDue(
+  doc: ProjectDoc,
+  fields: TaskFields,
+  strict: boolean,
+): void {
+  // 版本任务本身不挂到别的版本上。
+  if (isVersionTask(fields)) {
+    delete fields.version;
+    return;
+  }
+  const versionId = fields.version?.trim();
+  if (!versionId) return;
+
+  const version = doc.byId.get(versionId);
+  if (!version || !isVersionTask(version.fields)) {
+    if (strict) throw new HttpError(400, '关联的版本任务不存在或不是版本类型');
+    delete fields.version;
+    return;
+  }
+
+  const due = version.fields.due?.trim();
+  if (due) fields.due = due;
+  else delete fields.due;
+}
+
+/** 客户端本次提交里显式给出的截止日期（没有则为空字符串）。 */
+function providedDue(inputFields: unknown): string {
+  if (!inputFields || typeof inputFields !== 'object') return '';
+  const value = (inputFields as Record<string, unknown>).due;
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+/** 版本日期一变，所有挂在它下面的任务截止日期跟着改。 */
+function propagateVersionDue(
+  doc: ProjectDoc,
+  lines: string[],
+  versionId: string,
+  due: string | undefined,
+): void {
+  for (const task of doc.byId.values()) {
+    if (task.id === versionId) continue;
+    if (task.fields.version?.trim() !== versionId) continue;
+    if ((task.fields.due ?? '') === (due ?? '')) continue;
+
+    const fields: TaskFields = { ...task.fields };
+    if (due) fields.due = due;
+    else delete fields.due;
+
+    lines[task.line] = serializeTaskLine({
+      indent: task.indent,
+      done: task.done,
+      title: task.title,
+      fields,
+      id: task.synthetic ? undefined : task.id,
+    });
+  }
+}
+
 export async function updateTask(
   abs: string,
   taskId: string,
@@ -228,6 +330,19 @@ export async function updateTask(
 
     const title = input.title !== undefined ? taskTitle(input.title) : task.title;
     const fields = mergeFields(task.fields, input.fields);
+    // 解除关联版本后，原本由版本带来的截止日期一并清掉，免得留下一个没有来源的日期。
+    const previousVersion = task.fields.version?.trim() ?? '';
+    const nextVersion = fields.version?.trim() ?? '';
+    if (previousVersion && !nextVersion && !isVersionTask(fields) && !providedDue(input.fields)) {
+      delete fields.due;
+    }
+    // 关联版本后截止日期由版本决定，不接受手工改；版本自身日期变化则回写所有关联任务。
+    const touchingVersion =
+      Boolean(input.fields) &&
+      typeof input.fields === 'object' &&
+      input.fields !== null &&
+      'version' in (input.fields as Record<string, unknown>);
+    if (input.fields !== undefined) applyVersionDue(doc, fields, touchingVersion);
     const id = task.synthetic ? newTaskId() : task.id;
 
     const lines = doc.lines.slice();
@@ -238,6 +353,9 @@ export async function updateTask(
       fields,
       id,
     });
+    if (input.fields !== undefined && isVersionTask(fields)) {
+      propagateVersionDue(doc, lines, task.id, fields.due?.trim() || undefined);
+    }
 
     return { lines, value: { id } };
   });
@@ -256,7 +374,7 @@ export async function addProgress(
   taskId: string,
   input: { text?: unknown; author?: unknown },
 ): Promise<void> {
-  const text = normalizeText(input.text, '进展内容', 2000);
+  const text = normalizeProgressText(input.text);
   const author =
     typeof input.author === 'string' && input.author.trim()
       ? input.author.replace(/[[\]\r\n]/g, '').replace(/\s+/g, ' ').trim().slice(0, 40)
@@ -272,8 +390,10 @@ export async function addProgress(
     }
 
     const indent = ' '.repeat(task.indent + 2);
-    const entry = `${indent}- ${nowStamp()} [by::${author || '我'}] ${text}`;
-    lines.splice(task.line + 1, 0, entry);
+    const contIndent = ' '.repeat(task.indent + 4);
+    const [first, ...rest] = text.split('\n');
+    const entry = `${indent}- ${nowStamp()} [by::${author || '我'}] ${first}`;
+    lines.splice(task.line + 1, 0, entry, ...rest.map((line) => `${contIndent}${line}`));
 
     return { lines, value: undefined };
   });
@@ -287,6 +407,62 @@ function appendRootTask(lines: string[], taskLine: string): void {
 }
 
 const PROGRESS_LINE = /^([ \t]*)- \d{4}-\d{2}-\d{2}\b/;
+/** Prefix of a stored progress line: indent, date/time and optional author. */
+const PROGRESS_ENTRY =
+  /^([ \t]*-[ \t]+\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2})?(?:[ \t]+\[by::[^\]]*\])?)[ \t]+(.+)$/;
+
+/**
+ * Replace only the text of one progress entry. Its original date, time and
+ * author token are kept byte-for-byte, so editing never rewrites history.
+ */
+export async function updateProgress(
+  abs: string,
+  taskId: string,
+  input: { line?: unknown; text?: unknown },
+): Promise<void> {
+  if (typeof input.line !== 'number' || !Number.isInteger(input.line) || input.line < 0) {
+    throw new HttpError(400, '进展记录行号无效');
+  }
+  const text = normalizeProgressText(input.text);
+
+  await mutate(abs, (doc) => {
+    const task = doc.byId.get(taskId);
+    if (!task) throw new HttpError(404, '任务不存在，可能刚被外部删除');
+    if (!task.progress.some((entry) => entry.line === input.line)) {
+      throw new HttpError(404, '进展记录不存在，可能刚被外部修改');
+    }
+
+    const current = doc.lines[input.line as number];
+    const match = current ? PROGRESS_ENTRY.exec(current) : null;
+    if (!match) throw new HttpError(409, '进展记录格式已变化，请刷新后重试');
+
+    const start = input.line as number;
+    // match[1] 里还带着 `- `，只算行首缩进，才能和续行缩进比较。
+    const markerIndent = indentWidth(/^[ \t]*/.exec(match[1])?.[0] ?? '');
+    // 多行进展：连同后面所有更深缩进的续行一起替换。
+    let end = start;
+    for (let index = start + 1; index < doc.lines.length; index++) {
+      const raw = doc.lines[index];
+      // 多行进展里的空行写成带缩进的纯空格行，不能在此中断扫描；
+      // 只有缩进回到标记层级或遇到新任务/新进展才结束本条记录。
+      if (!raw.trim()) continue;
+      if (indentWidth(raw) <= markerIndent) break;
+      if (PROGRESS_LINE.test(raw) || TASK_LINE.test(raw)) break;
+      end = index;
+    }
+
+    const contIndent = ' '.repeat(markerIndent + 2);
+    const [first, ...rest] = text.split('\n');
+    const lines = doc.lines.slice();
+    lines.splice(
+      start,
+      end - start + 1,
+      `${match[1]} ${first}`,
+      ...rest.map((line) => `${contIndent}${line}`),
+    );
+    return { lines, value: undefined };
+  });
+}
 const FENCE = /^[ \t]*(?:```|~~~)/;
 
 /**
@@ -397,6 +573,11 @@ export async function createTask(
     }
 
     const fields = mergeFields({}, input.fields);
+    // 在版本任务下面建二级任务：自动归入该版本，并继承它的截止日期。
+    if (parent && isVersionTask(parent.fields) && !fields.version && !isVersionTask(fields)) {
+      fields.version = parent.id;
+    }
+    applyVersionDue(doc, fields, true);
     const id = newTaskId();
     const line = serializeTaskLine({
       indent: parent ? parent.indent + 2 : 0,
@@ -613,11 +794,13 @@ const H2_LINE = /^##[ \t]+(.*?)[ \t]*$/;
 const UNGROUPED = '';
 const DESCRIPTION_START = '<!-- description:start -->';
 const DESCRIPTION_END = '<!-- description:end -->';
+const PAGE_MARKER = /^<!--\s*page:[\w-]+:(start|end)\s*-->$/;
 
 /**
- * Whether a line index falls inside the Markdown description block.
- * H2 headings there are documentation, not real groups — section tooling must
- * ignore them so renaming/deleting a group can never rewrite the description.
+ * Whether a line index falls inside the description block or one of the page
+ * blocks (里程碑 / 风险 / 成本). H2 headings there are documentation, not real
+ * groups — section tooling must ignore them so renaming/deleting a group can
+ * never rewrite a page.
  */
 function insideDescription(lines: string[], index: number): boolean {
   let inside = false;
@@ -625,6 +808,7 @@ function insideDescription(lines: string[], index: number): boolean {
     const trimmed = lines[cursor].trim();
     if (trimmed === DESCRIPTION_START) inside = true;
     else if (trimmed === DESCRIPTION_END) inside = false;
+    else if (PAGE_MARKER.test(trimmed)) inside = trimmed.endsWith(':start -->');
   }
   return inside;
 }
@@ -639,10 +823,10 @@ function findSectionLine(
   );
 }
 
-/** Section name of an H2 line, or null when the line is not `## …`. */
+/** Section name of an H2 line (desc comment stripped), or null when not `## …`. */
 function h2Name(line: string): string | null {
   const match = H2_LINE.exec(line);
-  return match ? match[1].trim() : null;
+  return match ? parseSectionHeading(match[1]).name : null;
 }
 
 /** Ensure a section name is a safe, non-empty H2 title. */
@@ -767,7 +951,10 @@ export async function renameSection(
     if (findSectionLine(lines, (line) => h2Name(line) === to) >= 0) {
       throw new HttpError(400, '目标分组名称已存在');
     }
-    lines[index] = `## ${to}`;
+    // 重命名时保留原有描述注释。
+    const current = H2_LINE.exec(lines[index]);
+    const description = current ? parseSectionHeading(current[1]).description : undefined;
+    lines[index] = formatSectionHeading(to, description);
     return { lines, value: undefined };
   });
   return { from, to };
@@ -810,6 +997,39 @@ export async function deleteSection(
   return { section };
 }
 
+/**
+ * Set or clear a group's description. The description lives in a trailing
+ * `<!-- desc:… -->` comment on the H2 line, so it never affects task parsing.
+ */
+export async function updateSectionDescription(
+  abs: string,
+  input: { section?: unknown; description?: unknown },
+): Promise<{ section: string; description: string }> {
+  const section = sectionName(input.section);
+  const raw = input.description;
+  if (raw !== undefined && raw !== null && typeof raw !== 'string') {
+    throw new HttpError(400, '分组描述必须是文本');
+  }
+  const description = (raw ?? '')
+    .replace(/\s+/g, ' ')
+    .replace(/-->/g, '')
+    .trim();
+  if (description.length > 200) {
+    throw new HttpError(400, '分组描述不能超过 200 个字符');
+  }
+
+  await mutate(abs, (doc) => {
+    const lines = doc.lines.slice();
+    const index = findSectionLine(lines, (line) => h2Name(line) === section);
+    if (index < 0) throw new HttpError(404, '分组不存在');
+    const current = H2_LINE.exec(lines[index]);
+    const name = current ? parseSectionHeading(current[1]).name : section;
+    lines[index] = formatSectionHeading(name, description || undefined);
+    return { lines, value: undefined };
+  });
+  return { section, description };
+}
+
 export async function createSection(
   abs: string,
   input: { section?: unknown },
@@ -840,6 +1060,14 @@ const WINDOWS_RESERVED_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
 function yamlScalar(value: string): string {
   return JSON.stringify(value);
+}
+
+/**
+ * Front Matter line for one key. Scalars are quoted; `tags` arrives already
+ * serialized as a flow sequence (`["a", "b"]`) and must not be quoted again.
+ */
+function metaLine(key: string, value: string): string {
+  return key === 'tags' ? `tags: ${value}` : `${key}: ${yamlScalar(value)}`;
 }
 
 function syncProjectHeading(
@@ -1175,9 +1403,18 @@ function applyDescription(lines: string[], description: string): void {
         );
 
   if (startIdx >= 0 && endIdx > startIdx) {
+    if (!body) {
+      // 清空简介时连标记一起删掉，不在文件里留空壳。
+      let tail = endIdx + 1;
+      while (tail < lines.length && lines[tail].trim() === '') tail++;
+      lines.splice(startIdx, tail - startIdx);
+      return;
+    }
     lines.splice(startIdx + 1, endIdx - startIdx - 1, ...body);
     return;
   }
+
+  if (!body) return;
 
   let insertAt = 0;
   if (lines[0]?.trim() === '---') {
@@ -1192,6 +1429,190 @@ function applyDescription(lines: string[], description: string): void {
   lines.splice(insertAt, 0, DESCRIPTION_START, ...body, DESCRIPTION_END, '');
 }
 
+/** Validate a page body before it is written into the Markdown. */
+function projectPageBody(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new HttpError(400, '页面内容必须是文本');
+  }
+  if (/-->/i.test(value)) {
+    throw new HttpError(400, '页面内容不能包含 HTML 注释结束符「-->」');
+  }
+  if (value.length > 200_000) {
+    throw new HttpError(400, '页面内容过长（上限 20 万字符）');
+  }
+  return value.replace(/\r\n/g, '\n').replace(/\s+$/, '');
+}
+
+/**
+ * Replace the body of a page block, or insert a new block right after the
+ * description block (or the front matter) so all pages stay grouped before H1.
+ * Everything else in the file is left byte-for-byte untouched.
+ */
+function applyPage(lines: string[], key: ProjectPageKey, body: string): void {
+  const start = projectPageStart(key);
+  const end = projectPageEnd(key);
+  const startIdx = lines.findIndex((line) => line.trim() === start);
+  const endIdx =
+    startIdx < 0
+      ? -1
+      : lines.findIndex((line, index) => index > startIdx && line.trim() === end);
+  const empty = body.trim() === '';
+
+  if (startIdx >= 0 && endIdx > startIdx) {
+    if (empty) {
+      // 内容清空 = 连块一起删掉，别在文件里留一个空壳；块后的空行一并收走。
+      let tail = endIdx + 1;
+      while (tail < lines.length && lines[tail].trim() === '') tail++;
+      lines.splice(startIdx, tail - startIdx);
+      return;
+    }
+    lines.splice(startIdx + 1, endIdx - startIdx - 1, ...body.split('\n'));
+    // 块后面补一个空行，别让结束标记和下面的 H1 粘在一起。
+    const newEnd = lines.findIndex(
+      (line, index) => index > startIdx && line.trim() === end,
+    );
+    if (newEnd >= 0 && newEnd + 1 < lines.length && lines[newEnd + 1].trim() !== '') {
+      lines.splice(newEnd + 1, 0, '');
+    }
+    return;
+  }
+
+  // 还没有这个块、内容又是空的：什么都不写，等真有内容再插入。
+  if (empty) return;
+
+  // Insert after the last existing block, otherwise right after front matter.
+  let insertAt = 0;
+  if (lines[0]?.trim() === '---') {
+    const fmClose = lines.findIndex(
+      (line, index) => index > 0 && line.trim() === '---',
+    );
+    if (fmClose > 0) insertAt = fmClose + 1;
+  }
+  const descEndIdx = lines.findIndex(
+    (line, index) => index > insertAt && line.trim() === DESCRIPTION_END,
+  );
+  if (descEndIdx >= 0) insertAt = descEndIdx + 1;
+  for (const other of PROJECT_PAGE_KEYS) {
+    const otherEnd = lines.findIndex(
+      (line, index) => index > insertAt && line.trim() === projectPageEnd(other),
+    );
+    if (otherEnd >= 0) insertAt = otherEnd + 1;
+  }
+
+  const head = lines.slice(0, insertAt);
+  // 去掉插入点上方多余的空行，块与块之间只留一个空行。
+  while (head.length && head[head.length - 1].trim() === '') head.pop();
+  const tail = lines.slice(insertAt);
+  let lead = 0;
+  while (lead < tail.length && tail[lead].trim() === '') lead++;
+  const rest = tail.slice(lead);
+
+  lines.splice(
+    0,
+    lines.length,
+    ...head,
+    ...(head.length ? [''] : []),
+    start,
+    ...body.split('\n'),
+    end,
+    ...(rest.length ? ['', ...rest] : []),
+  );
+  while (lines.length && lines[0].trim() === '') lines.shift();
+}
+
+export async function updateProjectPage(
+  abs: string,
+  key: ProjectPageKey,
+  value: unknown,
+): Promise<void> {
+  const body = projectPageBody(value);
+  await mutate(abs, (doc) => {
+    const lines = doc.lines.slice();
+    // 简介页与「项目简介」共用 description 块，保证只存一份内容。
+    if (key === 'intro') applyDescription(lines, body);
+    else applyPage(lines, key, body);
+    return { lines, value: undefined };
+  });
+  invalidateAll();
+}
+
+/**
+ * 写入 / 替换 Front Matter 里的一个键；`serialized` 已经是 YAML 片段。
+ * 传 null 表示删除该键。只动这一行，其余内容原样保留。
+ */
+function setFrontMatterKey(
+  lines: string[],
+  key: string,
+  serialized: string | null,
+): void {
+  let end = -1;
+  if (lines[0]?.trim() === '---') {
+    for (let index = 1; index < lines.length; index++) {
+      if (lines[index].trim() === '---') {
+        end = index;
+        break;
+      }
+    }
+  }
+  if (end < 0) {
+    if (serialized !== null) {
+      lines.unshift('---', 'wbs: 1', `${key}: ${serialized}`, '---', '');
+    }
+    return;
+  }
+  const pattern = new RegExp(`^${key}\\s*:`);
+  for (let index = 1; index < end; index++) {
+    if (!pattern.test(lines[index])) continue;
+    if (serialized === null) lines.splice(index, 1);
+    else lines[index] = `${key}: ${serialized}`;
+    return;
+  }
+  if (serialized !== null) lines.splice(end, 0, `${key}: ${serialized}`);
+}
+
+/**
+ * 保存 里程碑 / 风险 / 成本 / 相关方 的展示顺序。
+ *
+ * 顺序写进项目 Front Matter 的 `pageOrder`，跟着项目文件走 —— 换浏览器、
+ * 换电脑打开都是同一套顺序，也能直接在编辑器里改。
+ */
+export async function updateProjectPageOrder(
+  abs: string,
+  value: unknown,
+): Promise<void> {
+  const order = normalizeProjectPageOrder(value);
+  const serialized = `[${order.map((key) => `"${key}"`).join(', ')}]`;
+  await mutate(abs, (doc) => {
+    const lines = doc.lines.slice();
+    setFrontMatterKey(lines, 'pageOrder', serialized);
+    return { lines, value: undefined };
+  });
+  invalidateAll();
+}
+
+/**
+ * 保存里程碑页关联的任务 id。
+ *
+ * 写在项目 Front Matter 的 `milestoneTasks: ["t_a", "t_b"]` 里，跟着文件走；
+ * 传空数组等于清空关联（顺手把这一行删掉，保持文件干净）。
+ */
+export async function updateMilestoneTasks(
+  abs: string,
+  value: unknown,
+): Promise<void> {
+  const ids = normalizeMilestoneTaskIds(value);
+  await mutate(abs, (doc) => {
+    const lines = doc.lines.slice();
+    setFrontMatterKey(
+      lines,
+      'milestoneTasks',
+      ids.length ? `[${ids.map(yamlScalar).join(', ')}]` : null,
+    );
+    return { lines, value: undefined };
+  });
+  invalidateAll();
+}
+
 export async function updateProjectMeta(
   abs: string,
   input: {
@@ -1199,13 +1620,15 @@ export async function updateProjectMeta(
     code?: unknown;
     status?: unknown;
     description?: unknown;
+    tags?: unknown;
   },
 ): Promise<void> {
   const hasName = input.name !== undefined;
   const hasCode = input.code !== undefined;
   const hasStatus = input.status !== undefined;
   const hasDescription = input.description !== undefined;
-  if (!hasName && !hasCode && !hasStatus && !hasDescription) {
+  const hasTags = input.tags !== undefined;
+  if (!hasName && !hasCode && !hasStatus && !hasDescription && !hasTags) {
     throw new HttpError(400, '没有需要更新的项目信息');
   }
 
@@ -1215,6 +1638,9 @@ export async function updateProjectMeta(
   const description = hasDescription
     ? projectDescription(input.description)
     : undefined;
+  // YAML flow sequence keeps tags on a single Front Matter line and stays
+  // readable in the Markdown source; an empty list removes the key entirely.
+  const tags = hasTags ? normalizeProjectTags(input.tags) : undefined;
 
   await mutate(abs, (doc) => {
     const lines = doc.lines.slice();
@@ -1227,6 +1653,9 @@ export async function updateProjectMeta(
     if (name !== undefined) updates.project = name;
     if (code !== undefined) updates.code = code;
     if (status !== undefined) updates.status = status;
+    if (tags !== undefined) {
+      updates.tags = tags.length ? `[${tags.map(yamlScalar).join(', ')}]` : null;
+    }
 
     let start = 0;
     let end = -1;
@@ -1242,7 +1671,7 @@ export async function updateProjectMeta(
     if (end < 0) {
       const frontMatter = ['---', 'wbs: 1'];
       for (const [key, value] of Object.entries(updates)) {
-        if (value !== null) frontMatter.push(`${key}: ${yamlScalar(value)}`);
+        if (value !== null) frontMatter.push(metaLine(key, value));
       }
       frontMatter.push('---', '');
       lines.unshift(...frontMatter);
@@ -1265,12 +1694,12 @@ export async function updateProjectMeta(
 
       const value = updates[key];
       handled.add(key);
-      if (value !== null) nextFrontMatter.push(`${key}: ${yamlScalar(value)}`);
+      if (value !== null) nextFrontMatter.push(metaLine(key, value));
     }
 
     for (const [key, value] of Object.entries(updates)) {
       if (value !== null && !handled.has(key)) {
-        nextFrontMatter.push(`${key}: ${yamlScalar(value)}`);
+        nextFrontMatter.push(metaLine(key, value));
       }
     }
 

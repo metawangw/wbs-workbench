@@ -1,13 +1,23 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
+  collectCodes,
   collectOwners,
   collectStats,
+  flattenTasks,
+  isFocused,
+  normalizeProjectPageOrder,
+  normalizeProjectTags,
+  type FocusTask,
   type ProjectDetail,
   type ProjectDoc,
   type ProjectSummary,
 } from '@wbs/shared';
-import { collectSections, parseProject } from '@wbs/shared/parser';
+import {
+  collectSectionDescriptions,
+  collectSections,
+  parseProject,
+} from '@wbs/shared/parser';
 import {
   decodeProjectId,
   encodeProjectId,
@@ -108,12 +118,50 @@ function asNumber(value: unknown): number | undefined {
   return undefined;
 }
 
+/**
+ * Flatten every task pinned to 今日关注. The summaries power the overview
+ * sticky-note board, so the client never has to fetch each project's detail.
+ */
+function buildFocusTasks(doc: ProjectDoc): FocusTask[] {
+  const codes = collectCodes(doc.roots);
+  const tasks: FocusTask[] = [];
+  for (const task of flattenTasks(doc.roots)) {
+    if (!isFocused(task.fields)) continue;
+    // Progress lines are not guaranteed to be date-sorted in the file, so pick
+    // the newest entry explicitly instead of assuming the last one.
+    const latest = task.progress.reduce<(typeof task.progress)[number] | undefined>(
+      (best, entry) =>
+        !best ||
+        `${entry.date} ${entry.time ?? ''}` > `${best.date} ${best.time ?? ''}`
+          ? entry
+          : best,
+      undefined,
+    );
+    tasks.push({
+      id: task.id,
+      code: codes.get(task.id) ?? '',
+      title: task.title,
+      priority: task.fields.priority,
+      owner: task.fields.owner,
+      due: task.fields.due,
+      color: task.fields.focusColor,
+      done: task.done,
+      latest: latest?.text.replace(/\s+/g, ' ').slice(0, 140),
+      latestDate: latest?.date,
+    });
+  }
+  return tasks;
+}
+
 function buildSummary(abs: string, doc: ProjectDoc): ProjectSummary {
   const rel = toRelPath(abs);
   const name =
     asString(doc.meta.project) ??
     doc.title ??
     path.basename(abs, path.extname(abs));
+
+  const tags = normalizeProjectTags(doc.meta.tags);
+  const focusTasks = buildFocusTasks(doc);
 
   return {
     id: encodeProjectId(rel),
@@ -123,6 +171,8 @@ function buildSummary(abs: string, doc: ProjectDoc): ProjectSummary {
     code: asString(doc.meta.code),
     status: asString(doc.meta.status),
     description: doc.description,
+    tags: tags.length ? tags : undefined,
+    focusTasks: focusTasks.length ? focusTasks : undefined,
     updated: asTimestamp(doc.meta.updated),
     stats: collectStats(doc.roots),
   };
@@ -134,8 +184,12 @@ function buildDetail(abs: string, doc: ProjectDoc): ProjectDetail {
     ...summary,
     meta: doc.meta,
     title: doc.title,
+    pages: doc.pages ?? {},
+    pageOrder: doc.pageOrder ?? normalizeProjectPageOrder(undefined),
+    milestoneTasks: doc.milestoneTasks ?? [],
     roots: doc.roots,
     sections: collectSections(doc.lines),
+    sectionDescriptions: collectSectionDescriptions(doc.lines),
     warnings: doc.warnings,
     owners: collectOwners(doc.roots),
     lineCount: doc.lines.length,

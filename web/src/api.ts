@@ -22,9 +22,6 @@ export interface DirListing {
   dirs: DirEntry[];
 }
 
-/** Download formats offered by the project "more" menu. */
-export type ProjectExportFormat = 'html' | 'pdf';
-
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     ...init,
@@ -129,11 +126,36 @@ export const api = {
 
   updateProject: (
     projectId: string,
-    input: { name?: string; code?: string; status?: string; description?: string },
+    input: {
+      name?: string;
+      code?: string;
+      status?: string;
+      description?: string;
+      tags?: string[];
+    },
   ) =>
     request<{ ok: true }>(`/projects/${projectId}`, {
       method: 'PATCH',
       body: JSON.stringify(input),
+    }),
+
+  /** 写入里程碑 / 风险 / 成本页面（返回刷新后的项目详情）。 */
+  saveProjectPage: (projectId: string, key: string, text: string) =>
+    request<ProjectDetail>(`/projects/${projectId}/pages/${key}`, {
+      method: 'PUT',
+      body: JSON.stringify({ text }),
+    }),
+
+  saveProjectPageOrder: (projectId: string, order: string[]) =>
+    request<ProjectDetail>(`/projects/${projectId}/page-order`, {
+      method: 'PUT',
+      body: JSON.stringify({ order }),
+    }),
+
+  saveMilestoneTasks: (projectId: string, ids: string[]) =>
+    request<ProjectDetail>(`/projects/${projectId}/milestone-tasks`, {
+      method: 'PUT',
+      body: JSON.stringify({ ids }),
     }),
 
   patchTask: (
@@ -150,6 +172,12 @@ export const api = {
     request<{ ok: true }>(`/projects/${projectId}/tasks/${taskId}/progress`, {
       method: 'POST',
       body: JSON.stringify({ text, author }),
+    }),
+
+  updateProgress: (projectId: string, taskId: string, line: number, text: string) =>
+    request<{ ok: true }>(`/projects/${projectId}/tasks/${taskId}/progress`, {
+      method: 'PATCH',
+      body: JSON.stringify({ line, text }),
     }),
 
   createTask: (
@@ -204,6 +232,16 @@ export const api = {
       body: JSON.stringify({ section }),
     }),
 
+  saveSectionDescription: (
+    projectId: string,
+    section: string,
+    description: string,
+  ) =>
+    request<{ section: string; description: string }>(
+      `/projects/${projectId}/sections/description`,
+      { method: 'POST', body: JSON.stringify({ section, description }) },
+    ),
+
   /** Open the project's Markdown file with the OS default program. */
   openProjectFile: (projectId: string) =>
     request<{ ok: true; path: string }>(`/projects/${projectId}/open-file`, {
@@ -217,9 +255,28 @@ export const api = {
     }),
 
   /**
-   * Same-origin URL that streams the rendered project as a download.
-   * Used directly as an anchor href so the browser handles the file itself.
+   * Print a client-built "what you see" document to PDF on the server
+   * (headless Edge/Chrome). Returns the raw PDF bytes.
    */
-  exportProjectUrl: (projectId: string, format: ProjectExportFormat) =>
-    `/api/projects/${projectId}/export/${format}`,
+  exportPdfFromHtml: async (html: string, filename: string): Promise<Blob> => {
+    const response = await fetch('/api/export/pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ html, filename }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      let message = `PDF 导出失败（HTTP ${response.status}）`;
+      try {
+        const parsed: unknown = JSON.parse(text);
+        if (parsed && typeof parsed === 'object' && 'error' in parsed) {
+          message = String((parsed as { error: unknown }).error);
+        }
+      } catch {
+        /* keep the status-based message */
+      }
+      throw new Error(message);
+    }
+    return response.blob();
+  },
 };

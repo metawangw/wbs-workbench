@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { App as AntApp, AutoComplete, Form, Input, Modal } from 'antd';
+import { App as AntApp, Form, Input, Modal } from 'antd';
 import { useStore } from '../store';
+import StatusSelect from './StatusSelect';
 
 interface FormValues {
   name: string;
   code?: string;
   status?: string;
-  description?: string;
 }
 
 export default function ProjectEditModal() {
@@ -25,7 +25,6 @@ export default function ProjectEditModal() {
       name: project.name,
       code: project.code ?? '',
       status: project.status ?? '',
-      description: project.description ?? '',
     });
   }, [open, project?.id, form]);
 
@@ -43,7 +42,6 @@ export default function ProjectEditModal() {
         name: values.name.trim(),
         code: values.code?.trim() ?? '',
         status: values.status?.trim() ?? '',
-        description: values.description ?? '',
       });
       message.success('项目信息已更新');
     } catch (error) {
@@ -89,27 +87,7 @@ export default function ProjectEditModal() {
         </Form.Item>
 
         <Form.Item name="status" label="项目状态">
-          <AutoComplete
-            options={['进行中', '稳定运营', '已归档'].map((value) => ({
-              value,
-            }))}
-            placeholder="例如：进行中"
-            maxLength={40}
-            allowClear
-          />
-        </Form.Item>
-
-        <Form.Item
-          name="description"
-          label="项目简介"
-          extra="支持 Markdown；保存后悬停项目名即可查看，留空表示清空。"
-        >
-          <Input.TextArea
-            rows={5}
-            maxLength={8000}
-            showCount
-            placeholder={"例如：**目标**：11 月底完成灰度。\n- 负责人：王伟\n- 风险：依赖外部接口"}
-          />
+          <StatusSelect />
         </Form.Item>
 
         <div className="form-hint">

@@ -17,6 +17,8 @@ import type { InputRef } from 'antd/es/input';
 import {
   DeleteOutlined,
   EditOutlined,
+  CaretRightOutlined,
+  CloseOutlined,
   FileTextOutlined,
   SaveOutlined,
   SendOutlined,
@@ -30,6 +32,9 @@ import {
   isSelfOrDescendant,
   parseDeps,
   priorityMeta,
+  isTitleTask,
+  isVersionTask,
+  splitOwners,
   wouldCreateCycle,
 } from '@wbs/shared';
 import { useStore } from '../store';
@@ -49,6 +54,11 @@ interface FormState {
   progress: string;
   /** Stable IDs of predecessor tasks. */
   deps: string[];
+  created: Dayjs | null;
+  isTitle: boolean;
+  isVersion: boolean;
+  /** 所属版本任务的 id（普通任务）。 */
+  version: string;
 }
 
 function toForm(task: NonNullable<ReturnType<typeof findTask>>): FormState {
@@ -63,6 +73,10 @@ function toForm(task: NonNullable<ReturnType<typeof findTask>>): FormState {
     confirm: task.fields.confirm ?? '',
     progress: task.fields.progress ?? '',
     deps: parseDeps(task.fields.deps),
+    created: task.fields.created ? dayjs(task.fields.created) : null,
+    isTitle: isTitleTask(task.fields),
+    isVersion: isVersionTask(task.fields),
+    version: task.fields.version ?? '',
   };
 }
 
@@ -81,6 +95,7 @@ export default function TaskDrawer() {
   const toggleDone = useStore((state) => state.toggleDone);
   const saveFields = useStore((state) => state.saveFields);
   const addProgress = useStore((state) => state.addProgress);
+  const updateProgress = useStore((state) => state.updateProgress);
   const deleteTask = useStore((state) => state.deleteTask);
   const { message, modal } = AntApp.useApp();
 
@@ -90,6 +105,19 @@ export default function TaskDrawer() {
   );
   const codes = useMemo(() => collectCodes(project?.roots ?? []), [project]);
 
+  // 可关联的版本任务（不含自己），选中后截止日期自动跟随版本。
+  const versionOptions = useMemo(() => {
+    const roots = project?.roots ?? [];
+    const map = collectCodes(roots);
+    return flattenTasks(roots)
+      .filter((item) => isVersionTask(item.fields) && item.id !== task?.id)
+      .map((item) => ({
+        value: item.id,
+        label: `${map.get(item.id) ?? ''} ${item.title}`.trim(),
+        due: item.fields.due ?? '',
+      }));
+  }, [project, task?.id]);
+
   const [form, setForm] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
   const [progressText, setProgressText] = useState('');
@@ -97,7 +125,19 @@ export default function TaskDrawer() {
   const [author, setAuthor] = useState(readAuthor);
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [attributesOpen, setAttributesOpen] = useState(false);
+  const [editingLine, setEditingLine] = useState<number | null>(null);
+  const [editingText, setEditingText] = useState('');
+  const [savingEntry, setSavingEntry] = useState(false);
   const titleRef = useRef<InputRef>(null);
+
+  useEffect(() => {
+    // Tasks with no progress open straight into the attribute editor; tasks
+    // that already have progress keep the compact default.
+    setAttributesOpen(Boolean(task && task.progress.length === 0));
+    setEditingLine(null);
+    setEditingText('');
+  }, [drawerTaskId, task?.id]);
 
   useEffect(() => {
     if (task) setForm(toForm(task));
@@ -130,7 +170,11 @@ export default function TaskDrawer() {
         form.cycle.trim() !== (task.fields.cycle ?? '') ||
         form.confirm.trim() !== (task.fields.confirm ?? '') ||
         form.progress.trim() !== (task.fields.progress ?? '') ||
-        JSON.stringify(form.deps) !== JSON.stringify(parseDeps(task.fields.deps))),
+        JSON.stringify(form.deps) !== JSON.stringify(parseDeps(task.fields.deps)) ||
+        (form.created?.format('YYYY-MM-DD') ?? '') !== (task.fields.created ?? '') ||
+        form.isTitle !== isTitleTask(task.fields) ||
+        form.isVersion !== isVersionTask(task.fields) ||
+        form.version !== (task.fields.version ?? '')),
   );
 
   const requestClose = () => {
@@ -172,11 +216,16 @@ export default function TaskDrawer() {
           priority: form.priority.trim(),
           importance: form.importance.trim(),
           start: form.start?.format('YYYY-MM-DD') ?? '',
-          due: form.due?.format('YYYY-MM-DD') ?? '',
+          // 关联版本时截止日期由服务端按版本回填，这里不提交手填值。
+          due: form.version ? '' : (form.due?.format('YYYY-MM-DD') ?? ''),
           cycle: form.cycle.trim(),
           confirm: form.confirm.trim(),
           progress: form.progress.trim(),
           deps: form.deps.join(','),
+          created: form.created?.format('YYYY-MM-DD') ?? '',
+          isTitle: form.isTitle ? '1' : '',
+          isVersion: form.isVersion ? '1' : '',
+          version: form.isVersion ? '' : form.version,
         },
       });
       message.success('已写入 Markdown');
@@ -217,6 +266,31 @@ export default function TaskDrawer() {
       message.error(error instanceof Error ? error.message : '追加进展失败');
     } finally {
       setAdding(false);
+    }
+  };
+
+  const handleUpdateEntry = async (entry: { line: number; text: string }) => {
+    if (!task) return;
+    const text = editingText.trim();
+    if (!text) {
+      message.warning('进展内容不能为空');
+      return;
+    }
+    if (text === entry.text) {
+      setEditingLine(null);
+      return;
+    }
+
+    setSavingEntry(true);
+    try {
+      // Only the text is sent; the server keeps the original date/time in the file.
+      await updateProgress(task.id, entry.line, text);
+      setEditingLine(null);
+      message.success('进展已更新，原记录时间保持不变');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '更新进展失败');
+    } finally {
+      setSavingEntry(false);
     }
   };
 
@@ -372,27 +446,21 @@ export default function TaskDrawer() {
             </div>
           </div>
 
-          <div className="drawer-section">
-            <div className="drawer-section-title">任务属性</div>
-            <div className="field-grid">
-              <div className="field">
-                <div className="field-label">负责人</div>
-                <AutoComplete
-                  value={form.owner}
-                  options={(project?.owners ?? []).map((owner) => ({
-                    value: owner,
-                  }))}
-                  onChange={(value) => update({ owner: value })}
-                  placeholder="输入或选择负责人"
-                  allowClear
-                  filterOption={(input, option) =>
-                    String(option?.value ?? '')
-                      .toLowerCase()
-                      .includes(input.toLowerCase())
-                  }
-                />
-              </div>
-
+          <div className="drawer-section drawer-attributes">
+            <button
+              type="button"
+              className="drawer-section-toggle"
+              aria-expanded={attributesOpen}
+              onClick={() => setAttributesOpen((value) => !value)}
+            >
+              <CaretRightOutlined className={attributesOpen ? 'is-open' : ''} />
+              <span>任务属性</span>
+              <span className="drawer-section-toggle-hint">
+                {attributesOpen ? '收起' : '展开编辑'}
+              </span>
+            </button>
+            {attributesOpen ? (
+              <div className="field-grid">
               <div className="field">
                 <div className="field-label">优先级</div>
                 <Select
@@ -411,6 +479,33 @@ export default function TaskDrawer() {
                   options={IMPORTANCE_OPTIONS.map((value) => ({ value }))}
                   onChange={(value) => update({ importance: value })}
                   placeholder="可选（高 / 中 / 低）"
+                  allowClear
+                />
+              </div>
+
+              <div className="field">
+                <div className="field-label">周期</div>
+                <AutoComplete
+                  value={form.cycle}
+                  options={[
+                    { value: '每日' },
+                    { value: '每周' },
+                    { value: '本周' },
+                  ]}
+                  onChange={(value) => update({ cycle: value })}
+                  placeholder="例如 本周 / 每日"
+                  allowClear
+                />
+              </div>
+
+              <div className="field">
+                <div className="field-label">创建日期</div>
+                <DatePicker
+                  value={form.created}
+                  format="YYYY-MM-DD"
+                  onChange={(value) => update({ created: value })}
+                  placeholder="未设置"
+                  style={{ width: '100%' }}
                   allowClear
                 />
               </div>
@@ -439,36 +534,40 @@ export default function TaskDrawer() {
                   placeholder="未设置"
                   style={{ width: '100%' }}
                   allowClear
+                  disabled={Boolean(form.version)}
                 />
+                {form.version ? (
+                  <div className="gantt-field-hint">
+                    已关联版本，截止日期强制跟随版本；要改请先改版本任务的日期。
+                  </div>
+                ) : null}
               </div>
 
               <div className="field">
-                <div className="field-label">周期</div>
-                <AutoComplete
-                  value={form.cycle}
-                  options={[
-                    { value: '每日' },
-                    { value: '每周' },
-                    { value: '本周' },
-                  ]}
-                  onChange={(value) => update({ cycle: value })}
-                  placeholder="例如 本周 / 每日"
+                <div className="field-label">联系人</div>
+                <Select
+                  mode="tags"
+                  value={splitOwners(form.owner)}
+                  options={(project?.owners ?? []).map((owner) => ({
+                    value: owner,
+                    label: owner,
+                  }))}
+                  onChange={(values: string[]) =>
+                    update({ owner: values.filter(Boolean).join('、') })
+                  }
+                  placeholder="输入或选择联系人，可填多个"
                   allowClear
+                  tokenSeparators={[',', '，', '、']}
+                  filterOption={(input, option) =>
+                    String(option?.value ?? '')
+                      .toLowerCase()
+                      .includes(input.toLowerCase())
+                  }
                 />
               </div>
 
               <div className="field">
-                <div className="field-label">确认人 / 关联人</div>
-                <Input
-                  value={form.confirm}
-                  onChange={(event) => update({ confirm: event.target.value })}
-                  placeholder="例如 李四"
-                  allowClear
-                />
-              </div>
-
-              <div className="field">
-                <div className="field-label">进度百分比（可选）</div>
+                <div className="field-label">进度百分比</div>
                 <InputNumber
                   className="progress-input"
                   min={0}
@@ -511,7 +610,60 @@ export default function TaskDrawer() {
                   被选任务会成为本任务的前置条件，甘特图中以箭头连线；不允许形成循环。
                 </div>
               </div>
-            </div>
+
+              <div className="field field-full">
+                <div className="field-label">所属版本</div>
+                <Select
+                  value={form.version || undefined}
+                  options={versionOptions}
+                  onChange={(value) => {
+                    const next = value ?? '';
+                    const due = versionOptions.find((item) => item.value === next)?.due;
+                    // 解除关联（或换成没有日期的版本）时，原本跟随版本的截止时间一并清掉。
+                    update({ version: next, due: next && due ? dayjs(due) : null });
+                  }}
+                  placeholder={
+                    versionOptions.length
+                      ? '不关联则截止日期可自由填写'
+                      : '还没有版本任务，可先把某个任务改成版本类型'
+                  }
+                  allowClear
+                  disabled={form.isVersion}
+                  showSearch
+                  optionFilterProp="label"
+                />
+                <div className="gantt-field-hint">
+                  关联后任务截止日期强制等于版本日期，版本日期一变全部关联任务同步；
+                  在版本任务下新建的子任务会自动归入该版本。
+                </div>
+              </div>
+
+              <div className="field field-full">
+                <div className="drawer-field-switches">
+                  <Switch
+                    size="small"
+                    checked={form.isTitle}
+                    onChange={(value) =>
+                      update({ isTitle: value, ...(value ? { isVersion: false } : {}) })
+                    }
+                  />
+                  <span>标题类型</span>
+                  <Switch
+                    size="small"
+                    checked={form.isVersion}
+                    onChange={(value) =>
+                      update({
+                        isVersion: value,
+                        ...(value ? { isTitle: false, version: '' } : {}),
+                      })
+                    }
+                  />
+                  <span>版本类型</span>
+                </div>
+              </div>
+              </div>
+
+            ) : null}
           </div>
 
           <div className="drawer-section">
@@ -544,7 +696,7 @@ export default function TaskDrawer() {
                 <Input.TextArea
                   value={progressText}
                   onChange={(event) => setProgressText(event.target.value)}
-                  placeholder="今天完成了什么？遇到了什么阻塞？支持 **加粗**、`代码`、[链接](url)"
+                  placeholder="今天完成了什么？支持多行与 **加粗**、`代码`、[链接](url)"
                   autoSize={{ minRows: 3, maxRows: 6 }}
                   maxLength={2000}
                   onKeyDown={(event) => {
@@ -588,18 +740,59 @@ export default function TaskDrawer() {
                       {entry.author ? (
                         <span className="timeline-author">{entry.author}</span>
                       ) : null}
+                      {editingLine !== entry.line ? (
+                        <button
+                          type="button"
+                          className="timeline-edit-btn"
+                          aria-label="修改这条进展"
+                          onClick={() => {
+                            setEditingLine(entry.line);
+                            setEditingText(entry.text);
+                          }}
+                        >
+                          <EditOutlined /> 修改
+                        </button>
+                      ) : null}
                     </div>
-                    <MarkdownText text={entry.text} className="timeline-text" />
+                    {editingLine === entry.line ? (
+                      <div className="timeline-editor">
+                        <Input.TextArea
+                          value={editingText}
+                          onChange={(event) => setEditingText(event.target.value)}
+                          autoSize={{ minRows: 3, maxRows: 6 }}
+                          maxLength={2000}
+                          aria-label="修改进展内容"
+                        />
+                        <div className="timeline-editor-actions">
+                          <Button
+                            size="small"
+                            icon={<CloseOutlined />}
+                            disabled={savingEntry}
+                            onClick={() => setEditingLine(null)}
+                          >
+                            取消
+                          </Button>
+                          <Button
+                            size="small"
+                            type="primary"
+                            icon={<SaveOutlined />}
+                            loading={savingEntry}
+                            disabled={!editingText.trim()}
+                            onClick={() => void handleUpdateEntry(entry)}
+                          >
+                            保存修改
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <MarkdownText text={entry.text} className="timeline-text" />
+                    )}
                   </div>
                 ))}
               </div>
             ) : (
               <div className="timeline-empty">还没有进展记录，写下第一条吧。</div>
             )}
-          </div>
-
-          <div className="drawer-meta-foot">
-            数据源 <code>{project?.path}</code> · 所有修改以行为单位写回
           </div>
         </div>
       ) : (

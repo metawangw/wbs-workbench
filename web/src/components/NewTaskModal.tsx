@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   App as AntApp,
   AutoComplete,
@@ -9,23 +9,36 @@ import {
   Modal,
   Row,
   Select,
+  Switch,
   TreeSelect,
 } from 'antd';
-import type { Dayjs } from 'dayjs';
-import { collectCodes, priorityMeta, type TaskNode } from '@wbs/shared';
+import type { InputRef } from 'antd';
+import dayjs, { type Dayjs } from 'dayjs';
+import {
+  collectCodes,
+  findTask,
+  flattenTasks,
+  isVersionTask,
+  priorityMeta,
+  type TaskNode,
+} from '@wbs/shared';
 import { useStore } from '../store';
 import { IMPORTANCE_OPTIONS } from './atoms';
 
 interface FormValues {
   title: string;
   parentId?: string;
-  owner?: string;
+  owner?: string[];
   priority?: string;
   importance?: string;
   start?: Dayjs;
   due?: Dayjs;
   cycle?: string;
   confirm?: string;
+  created?: Dayjs;
+  isTitle?: boolean;
+  isVersion?: boolean;
+  version?: string;
 }
 
 interface ParentOption {
@@ -44,6 +57,15 @@ function toParentOptions(nodes: TaskNode[], codes: Map<string, string>): ParentO
   }));
 }
 
+function findTaskTitle(nodes: TaskNode[], id: string): string | undefined {
+  for (const node of nodes) {
+    if (node.id === id) return node.title;
+    const found = findTaskTitle(node.children, id);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 export default function NewTaskModal() {
   const open = useStore((state) => state.createDraft.open);
   const parentId = useStore((state) => state.createDraft.parentId);
@@ -55,22 +77,62 @@ export default function NewTaskModal() {
 
   const [form] = Form.useForm<FormValues>();
   const [submitting, setSubmitting] = useState(false);
+  const titleInputRef = useRef<InputRef>(null);
   const { message } = AntApp.useApp();
+
+  const isVersionType = Form.useWatch('isVersion', form) ?? false;
+  const versionId = Form.useWatch('version', form) ?? '';
+
+  // 可关联的版本任务；选中后截止日期自动跟随版本且不可改。
+  const versionOptions = useMemo(() => {
+    const roots = project?.roots ?? [];
+    const map = collectCodes(roots);
+    return flattenTasks(roots)
+      .filter((item) => isVersionTask(item.fields))
+      .map((item) => ({
+        value: item.id,
+        label: `${map.get(item.id) ?? ''} ${item.title}`.trim(),
+        due: item.fields.due ?? '',
+      }));
+  }, [project]);
 
   const parentOptions = useMemo(() => {
     const roots = project?.roots ?? [];
     return toParentOptions(roots, collectCodes(roots));
   }, [project]);
 
+  const parentTitle = useMemo(
+    () => (parentId ? findTaskTitle(project?.roots ?? [], parentId) : undefined),
+    [parentId, project],
+  );
+
+  // 从"添加子任务"（任务前的 + 号）进来的子任务，默认继承父任务优先级。
+  const defaultPriority = useMemo(() => {
+    if (!parentId) return 'P2';
+    const parent = findTask(project?.roots ?? [], parentId);
+    return parent?.fields.priority?.trim() || 'P2';
+  }, [parentId, project]);
+
   useEffect(() => {
     if (!open) return;
     form.resetFields();
+    const parent = parentId ? findTask(project?.roots ?? [], parentId) : undefined;
+    const inheritVersion =
+      parent && isVersionTask(parent.fields) ? parent.id : undefined;
     form.setFieldsValue({
       parentId: parentId ?? undefined,
-      priority: 'P2',
-      cycle: '本周',
+      priority: defaultPriority,
+      created: dayjs(),
+      isTitle: false,
+      isVersion: false,
+      version: inheritVersion,
+      due: inheritVersion
+        ? versionOptions.find((item) => item.value === inheritVersion)?.due
+          ? dayjs(versionOptions.find((item) => item.value === inheritVersion)!.due)
+          : undefined
+        : undefined,
     });
-  }, [open, parentId, draftSection, form]);
+  }, [open, parentId, draftSection, defaultPriority, form, project]);
 
   const handleSubmit = async () => {
     let values: FormValues;
@@ -83,7 +145,7 @@ export default function NewTaskModal() {
     setSubmitting(true);
     try {
       const fields: Record<string, string> = {};
-      const owner = values.owner?.trim();
+      const owner = values.owner?.filter(Boolean).join('、').trim();
       const priority = values.priority?.trim();
       const importance = values.importance?.trim();
       const cycle = values.cycle?.trim();
@@ -94,8 +156,14 @@ export default function NewTaskModal() {
       if (importance) fields.importance = importance;
       if (values.start) fields.start = values.start.format('YYYY-MM-DD');
       if (values.due) fields.due = values.due.format('YYYY-MM-DD');
+      if (values.created) fields.created = values.created.format('YYYY-MM-DD');
+      if (values.isTitle) fields.isTitle = '1';
+      if (values.isVersion) fields.isVersion = '1';
+      if (values.version && !values.isVersion) fields.version = values.version;
       if (cycle) fields.cycle = cycle;
       if (confirm) fields.confirm = confirm;
+      // 关联版本时截止日期交给服务端按版本回填。
+      if (values.version) delete fields.due;
 
       const createdId = await createTask({
         parentId: values.parentId ?? null,
@@ -124,10 +192,16 @@ export default function NewTaskModal() {
       confirmLoading={submitting}
       width={620}
       className="new-task-modal"
+      afterOpenChange={(value) => {
+        // Modal 动画结束后把光标放回任务名称，避免被 Switch 等控件抢走焦点。
+        if (value) window.setTimeout(() => titleInputRef.current?.focus(), 60);
+      }}
       title={
         <span className="modal-title">
           新建任务
-          <span className="modal-sub">写入 {project?.path ?? 'Markdown 文件'}</span>
+          <span className="modal-sub">
+            {parentTitle ? `父任务：${parentTitle}` : `写入 ${project?.path ?? 'Markdown 文件'}`}
+          </span>
         </span>
       }
     >
@@ -140,7 +214,35 @@ export default function NewTaskModal() {
             { max: 300, message: '最多 300 个字符' },
           ]}
         >
-          <Input placeholder="例如：完成登录接口联调" autoFocus />
+          <Input
+            ref={titleInputRef}
+            placeholder="例如：完成登录接口联调"
+            autoFocus
+            // 输完名字直接回车就建，不用再去点「创建任务」。
+            onPressEnter={(event) => {
+              if ((event.nativeEvent as KeyboardEvent).isComposing) return;
+              void handleSubmit();
+            }}
+          />
+        </Form.Item>
+
+        <Form.Item name="version" label="所属版本">
+          <Select
+            options={versionOptions}
+            placeholder={
+              versionOptions.length
+                ? '不选则截止日期可自由填写'
+                : '还没有版本任务，可先把某个任务改成版本类型'
+            }
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            disabled={isVersionType}
+            onChange={(value?: string) => {
+              const due = versionOptions.find((item) => item.value === value)?.due;
+              form.setFieldValue('due', value && due ? dayjs(due) : undefined);
+            }}
+          />
         </Form.Item>
 
         <Form.Item name="parentId" label="父任务">
@@ -156,11 +258,16 @@ export default function NewTaskModal() {
 
         <Row gutter={16}>
           <Col span={12}>
-            <Form.Item name="owner" label="负责人">
-              <AutoComplete
-                options={(project?.owners ?? []).map((owner) => ({ value: owner }))}
-                placeholder="输入或选择负责人"
+            <Form.Item name="owner" label="联系人">
+              <Select
+                mode="tags"
+                options={(project?.owners ?? []).map((owner) => ({
+                  value: owner,
+                  label: owner,
+                }))}
+                placeholder="输入或选择联系人，可填多个"
                 allowClear
+                tokenSeparators={[',', '，', '、']}
                 filterOption={(input, option) =>
                   String(option?.value ?? '')
                     .toLowerCase()
@@ -217,8 +324,9 @@ export default function NewTaskModal() {
             <Form.Item name="due" label="截止日期">
               <DatePicker
                 format="YYYY-MM-DD"
-                placeholder="选择日期"
+                placeholder={versionId ? '跟随所属版本' : '选择日期'}
                 style={{ width: '100%' }}
+                disabled={Boolean(versionId)}
               />
             </Form.Item>
           </Col>
@@ -239,7 +347,45 @@ export default function NewTaskModal() {
               <Input placeholder="例如：李四" allowClear />
             </Form.Item>
           </Col>
+          <Col span={12}>
+            <Form.Item name="created" label="创建日期">
+              <DatePicker
+                format="YYYY-MM-DD"
+                placeholder="选择或输入日期"
+                style={{ width: '100%' }}
+                allowClear
+              />
+            </Form.Item>
+          </Col>
         </Row>
+
+        <div className="task-form-switches">
+          <div className="task-form-switch">
+            <Form.Item name="isTitle" valuePropName="checked" noStyle>
+              <Switch
+                size="small"
+                onChange={(value) => {
+                  if (value) form.setFieldValue('isVersion', false);
+                }}
+              />
+            </Form.Item>
+            <span>标题类型</span>
+          </div>
+          <div className="task-form-switch">
+            <Form.Item name="isVersion" valuePropName="checked" noStyle>
+              <Switch
+                size="small"
+                onChange={(value) => {
+                  if (value) {
+                    form.setFieldValue('isTitle', false);
+                    form.setFieldValue('version', undefined);
+                  }
+                }}
+              />
+            </Form.Item>
+            <span>版本类型</span>
+          </div>
+        </div>
       </Form>
     </Modal>
   );

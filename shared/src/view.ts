@@ -1,6 +1,68 @@
-import type { ProjectStats, TaskNode } from './types';
+import type { ProjectStats, TaskFields, TaskNode } from './types';
 
 export type DueTone = 'danger' | 'today' | 'soon' | 'normal';
+
+/** 有创建日期就在任务名称前显示，不再依赖 `showCreated` 开关（旧数据仍然可读）。 */
+export function showsCreated(fields: TaskFields): boolean {
+  return Boolean(fields.created?.trim());
+}
+
+/** True when the task is pinned to 项目总览 → 今日关注. */
+export function isFocused(fields: TaskFields): boolean {
+  const value = fields.focus?.trim().toLowerCase();
+  if (!value) return false;
+  return !['0', 'false', 'no', '否', 'off'].includes(value);
+}
+
+/** True when the task is a title/heading row (background highlight in list). */
+export function isTitleTask(fields: TaskFields): boolean {
+  const value = fields.isTitle?.trim().toLowerCase();
+  if (!value) return false;
+  return !['0', 'false', 'no', '否', 'off'].includes(value);
+}
+
+/** 版本类型任务：与标题类型同级，可挂二级任务并持有交付日期。 */
+export function isVersionTask(fields: TaskFields): boolean {
+  const value = fields.isVersion?.trim().toLowerCase();
+  if (!value) return false;
+  return !['0', 'false', 'no', '否', 'off'].includes(value);
+}
+
+/** 每行任务在悬浮时需要一起点亮的关联任务：前置 + 所属版本。 */
+export function relatedTaskIds(fields: TaskFields): string[] {
+  const ids = parseDeps(fields.deps);
+  const version = fields.version?.trim();
+  if (version && !ids.includes(version)) ids.push(version);
+  return ids;
+}
+
+export const MAX_PROJECT_TAGS = 8;
+export const MAX_PROJECT_TAG_LENGTH = 16;
+
+/**
+ * Normalize project tags coming from Front Matter (array or comma string) or
+ * from the UI. Trims, drops blanks/duplicates, caps the count and length.
+ */
+export function normalizeProjectTags(input: unknown): string[] {
+  const raw = Array.isArray(input)
+    ? input
+    : typeof input === 'string'
+      ? input.split(/[,，;；、\n]/)
+      : [];
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'string') continue;
+    const tag = item.trim().replace(/^#+/, '').slice(0, MAX_PROJECT_TAG_LENGTH);
+    if (!tag) continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push(tag);
+    if (tags.length >= MAX_PROJECT_TAGS) break;
+  }
+  return tags;
+}
 
 export interface DueBadge {
   label: string;
@@ -50,6 +112,25 @@ export function priorityMeta(priority?: string): PriorityMeta {
       rank: 50,
     }
   );
+}
+
+export type ImportanceTone = 'high' | 'mid' | 'low';
+
+/**
+ * Map a free-text importance value to one of the three colour tones.
+ * The field is user-typed, so accept the common aliases before falling back
+ * to 中 — an unknown label must still get a readable colour.
+ */
+export function importanceTone(importance?: string): ImportanceTone {
+  const value = (importance ?? '').trim();
+  if (!value) return 'mid';
+  if (/^(高|高优|高优先级|紧急|重要)$/.test(value) || /^(high|h)$/i.test(value)) {
+    return 'high';
+  }
+  if (/^(低|低优|低优先级|次要)$/.test(value) || /^(low|l)$/i.test(value)) {
+    return 'low';
+  }
+  return 'mid';
 }
 
 export function collectStats(roots: TaskNode[], now = new Date()): ProjectStats {
@@ -151,10 +232,22 @@ export function isSelfOrDescendant(
   return false;
 }
 
+/**
+ * 联系人字段用顿号连接多个姓名；这里拆成数组，同时兼容手输的逗号 / 分号。
+ * 底层仍以单个字符串存储，保持存量 Markdown 与服务端字段校验不变。
+ */
+export function splitOwners(value?: string): string[] {
+  if (!value) return [];
+  return value
+    .split(/[、,，;；]+/)
+    .map((name) => name.trim())
+    .filter(Boolean);
+}
+
 export function collectOwners(roots: TaskNode[]): string[] {
   const owners = new Set<string>();
   for (const task of flattenTasks(roots)) {
-    if (task.fields.owner?.trim()) owners.add(task.fields.owner.trim());
+    for (const name of splitOwners(task.fields.owner)) owners.add(name);
   }
   return [...owners].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
 }

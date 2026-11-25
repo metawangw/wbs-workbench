@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import type { DragEvent } from 'react';
+import type { CSSProperties, DragEvent } from 'react';
 import { App as AntApp, Button, Dropdown, Input, Modal, Popconfirm, Tooltip, type MenuProps } from 'antd';
 import {
   AppstoreOutlined,
@@ -15,7 +15,8 @@ import {
 } from '@ant-design/icons';
 import type { ProjectSummary } from '@wbs/shared';
 import { useStore } from '../store';
-import { brandGlyphStyle, statusTone } from './atoms';
+import { projectStatusColor } from '../lib/settings';
+import { brandGlyphStyle } from './atoms';
 
 function dirOf(project: ProjectSummary): string {
   const parts = project.path.split('/');
@@ -82,6 +83,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const activeId = useStore((state) => state.activeId);
   const loadingProjects = useStore((state) => state.loadingProjects);
   const brand = useStore((state) => state.brand);
+  const statuses = useStore((state) => state.statuses);
   const selectProject = useStore((state) => state.selectProject);
   const showOverview = useStore((state) => state.showOverview);
   const refreshAll = useStore((state) => state.refreshAll);
@@ -231,23 +233,25 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   };
 
   return (
-    <div className="sidebar-inner">
-      <div className="brand">
-        <div
-          className="brand-mark"
-          style={{
-            background: brand.iconColor,
-            borderRadius: brand.iconRadius,
-            ...brandGlyphStyle(brand.icon, 13),
-          }}
-        >
-          {(brand.icon || 'W').slice(0, 2)}
+    <div className={`sidebar-inner${brand.show === false ? ' is-brand-hidden' : ''}`}>
+      {brand.show !== false ? (
+        <div className="brand">
+          <div
+            className="brand-mark"
+            style={{
+              background: brand.iconColor,
+              borderRadius: brand.iconRadius,
+              ...brandGlyphStyle(brand.icon, 13),
+            }}
+          >
+            {(brand.icon || 'W').slice(0, 2)}
+          </div>
+          <div>
+            <div className="brand-title">{brand.title || 'WBS 工作台'}</div>
+            <div className="brand-sub">{brand.subtitle}</div>
+          </div>
         </div>
-        <div>
-          <div className="brand-title">{brand.title || 'WBS 工作台'}</div>
-          <div className="brand-sub">{brand.subtitle}</div>
-        </div>
-      </div>
+      ) : null}
 
       <Input
         className="side-search"
@@ -517,19 +521,24 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                     onDragEnd={clearDragState}
                   >
                     <div className="project-item-top">
-                      <span className={`status-dot ${statusTone(project.status)}`} />
+                      <span
+                        className="status-dot"
+                        style={
+                          {
+                            '--dot': projectStatusColor(project.status, statuses),
+                          } as CSSProperties
+                        }
+                      />
                       <span className="project-name">{project.name}</span>
-                      {project.stats.p0 > 0 ? (
-                        <span className="project-p0">{project.stats.p0} P0</span>
-                      ) : null}
                     </div>
                     <div className="mini-progress">
                       <span style={{ width: `${percent}%` }} />
                     </div>
-                    <div className="project-meta">
-                      <span className="project-code">
-                        {project.code ?? project.path}
-                      </span>
+                    {/* 没有填写项目编号时不再回退显示 md 文件名，只保留统计。 */}
+                    <div className={`project-meta${project.code ? '' : ' is-plain'}`}>
+                      {project.code ? (
+                        <span className="project-code">{project.code}</span>
+                      ) : null}
                       <span>
                         {project.stats.open} 未完成 / {project.stats.total}
                       </span>

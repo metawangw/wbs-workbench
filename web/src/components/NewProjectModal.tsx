@@ -1,27 +1,21 @@
 import { useEffect, useState } from 'react';
-import {
-  App as AntApp,
-  AutoComplete,
-  Form,
-  Input,
-  Modal,
-  Select,
-} from 'antd';
+import { App as AntApp, Form, Input, Modal } from 'antd';
 import { useStore } from '../store';
+import StatusSelect from './StatusSelect';
 
 interface FormValues {
   name: string;
   code?: string;
   status?: string;
-  folder?: string;
 }
 
 export default function NewProjectModal() {
   const open = useStore((state) => state.newProjectOpen);
   const presetFolder = useStore((state) => state.newProjectFolder);
-  const folders = useStore((state) => state.folders);
+  const dataDir = useStore((state) => state.dataDir);
   const close = useStore((state) => state.closeNewProject);
   const createProject = useStore((state) => state.createProject);
+  const statuses = useStore((state) => state.statuses);
 
   const [form] = Form.useForm<FormValues>();
   const [submitting, setSubmitting] = useState(false);
@@ -30,8 +24,10 @@ export default function NewProjectModal() {
   useEffect(() => {
     if (!open) return;
     form.resetFields();
-    form.setFieldsValue({ status: '进行中', folder: presetFolder || '' });
-  }, [open, form, presetFolder]);
+    const presetStatus =
+      statuses.find((status) => status.name === '进行中')?.name ?? statuses[0]?.name ?? '';
+    form.setFieldsValue({ status: presetStatus });
+  }, [open, form, presetFolder, statuses]);
 
   const submit = async () => {
     let values: FormValues;
@@ -47,7 +43,8 @@ export default function NewProjectModal() {
         name: values.name.trim(),
         code: values.code?.trim(),
         status: values.status?.trim(),
-        folder: values.folder ?? '',
+        // 从文件夹入口打开时沿用预置目录；否则留在项目根目录。
+        folder: presetFolder,
       });
       message.success('项目已创建');
     } catch (error) {
@@ -91,32 +88,13 @@ export default function NewProjectModal() {
         </Form.Item>
 
         <Form.Item name="status" label="项目状态">
-          <AutoComplete
-            options={['进行中', '稳定运营', '已归档'].map((value) => ({
-              value,
-            }))}
-            placeholder="例如：进行中"
-            maxLength={40}
-            allowClear
-          />
-        </Form.Item>
-
-        <Form.Item name="folder" label="存放位置">
-          <Select
-            options={[
-              { value: '', label: 'data（根目录）' },
-              ...folders.map((folder) => ({ value: folder, label: folder })),
-            ]}
-            showSearch
-            optionFilterProp="label"
-            placeholder="根目录"
-            allowClear
-          />
+          <StatusSelect />
         </Form.Item>
 
         <div className="form-hint">
-          会在 <code>data/</code> 下创建对应的 <code>.md</code>{' '}
-          文件，创建后自动打开项目。
+          会在{' '}
+          <code>{presetFolder ? `${presetFolder}/` : `${dataDir || 'data'}/`}</code>{' '}
+          下创建对应的 <code>.md</code> 文件，创建后自动打开项目。
         </div>
       </Form>
     </Modal>

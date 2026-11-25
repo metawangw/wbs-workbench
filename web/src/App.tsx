@@ -1,7 +1,14 @@
-import { useEffect, useState } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { Alert, Button, Drawer, Skeleton } from 'antd';
 import { findTask, type AppSettings } from '@wbs/shared';
-import { useStore } from './store';
+import { SIDEBAR_DEFAULT_WIDTH, useStore } from './store';
+import { groupBySection } from './lib/filters';
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
 import ProjectView from './components/ProjectView';
@@ -39,8 +46,71 @@ export default function App() {
   const error = useStore((state) => state.error);
   const dataDir = useStore((state) => state.dataDir);
   const sidebarCollapsed = useStore((state) => state.sidebarCollapsed);
+  const sidebarAutoHide = useStore((state) => state.sidebarAutoHide);
+  const sidebarWidth = useStore((state) => state.sidebarWidth);
+  const setSidebarWidth = useStore((state) => state.setSidebarWidth);
   const brand = useStore((state) => state.brand);
   const [navOpen, setNavOpen] = useState(false);
+  // Auto-hide mode: the sidebar leaves the layout and only slides in while the
+  // pointer sits on the left edge (or on the panel itself).
+  const [sidebarPeek, setSidebarPeek] = useState(false);
+  const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  // Drag the 4px handle on the sidebar's right edge to widen/narrow it.
+  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    resizeRef.current = { startX: event.clientX, startWidth: sidebarWidth };
+    document.body.classList.add('is-resizing-sidebar');
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const start = resizeRef.current;
+      if (!start) return;
+      setSidebarWidth(start.startWidth + (moveEvent.clientX - start.startX));
+    };
+    const onUp = () => {
+      resizeRef.current = null;
+      document.body.classList.remove('is-resizing-sidebar');
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  const sidebarResizer = (
+    <div
+      className="sidebar-resizer"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="拖动调整项目栏宽度"
+      title="拖动调整宽度，双击恢复默认"
+      onPointerDown={startResize}
+      onDoubleClick={() => setSidebarWidth(SIDEBAR_DEFAULT_WIDTH)}
+    />
+  );
+
+  useEffect(() => {
+    if (!sidebarAutoHide) {
+      setSidebarPeek(false);
+      return;
+    }
+    // Track the pointer globally: opening is limited to the 12px edge strip,
+    // while closing waits until the pointer leaves the whole panel. A global
+    // listener also survives the panel sliding in under a still cursor, which
+    // per-element mouseenter/mouseleave does not.
+    const PANEL_WIDTH = sidebarWidth;
+    const EDGE = 12;
+    const onMove = (event: MouseEvent) => {
+      const x = event.clientX;
+      setSidebarPeek((previous) =>
+        previous ? x < PANEL_WIDTH + 6 : x <= EDGE,
+      );
+    };
+    window.addEventListener('mousemove', onMove);
+    return () => window.removeEventListener('mousemove', onMove);
+  }, [sidebarAutoHide, sidebarWidth]);
 
   useEffect(() => {
     void init();
@@ -132,7 +202,17 @@ export default function App() {
         state.project
       ) {
         event.preventDefault();
-        state.openCreate(null);
+        const sections = state.project.sections ?? [];
+        if (!sections.length) {
+          // 没有分组时维持原行为：建在根目录。
+          state.openCreate(null);
+        } else {
+          // 有分组：从上往下找第一个展开的分组，跳过收起的；全收起时用第一个分组。
+          const groups = groupBySection(state.project.roots, sections);
+          const target =
+            groups.find((group) => !state.collapsedGroups[group.key]) ?? groups[0];
+          state.openCreateInSection(target?.key ?? '');
+        }
       }
     };
 
@@ -147,10 +227,30 @@ export default function App() {
   };
 
   return (
-    <div className={`app-shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
-      {!sidebarCollapsed ? (
+    <div
+      className={`app-shell${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}
+      style={{ '--sidebar-w': `${sidebarWidth}px` } as CSSProperties}
+    >
+      {sidebarAutoHide ? (
+        <>
+          <div
+            className="sidebar-hover-zone"
+            aria-hidden="true"
+            onMouseEnter={() => setSidebarPeek(true)}
+          />
+          <aside
+            className={`sidebar desktop-sidebar sidebar-overlay${
+              sidebarPeek ? ' is-peek' : ''
+            }`}
+          >
+            <Sidebar />
+            {sidebarResizer}
+          </aside>
+        </>
+      ) : !sidebarCollapsed ? (
         <aside className="sidebar desktop-sidebar">
           <Sidebar />
+          {sidebarResizer}
         </aside>
       ) : null}
 

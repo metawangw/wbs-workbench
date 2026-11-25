@@ -11,34 +11,70 @@ import {
   BRAND_ACCENT,
   DEFAULT_APPEARANCE,
   DEFAULT_BRAND,
+  DEFAULT_CREATED_COLOR,
+  DEFAULT_IMP_HIGH_COLOR,
+  DEFAULT_IMP_LOW_COLOR,
+  DEFAULT_IMP_MID_COLOR,
+  DEFAULT_P0_COLOR,
+  DEFAULT_P1_COLOR,
+  DEFAULT_P2_COLOR,
+  DEFAULT_PROJECT_STATUSES,
   DEFAULT_SETTINGS,
+  DEFAULT_TITLE_COLOR,
+  DEFAULT_VERSION_COLOR,
+  MAX_PROJECT_STATUSES,
+  MAX_PROJECT_STATUS_NAME,
+  STATUS_COLOR_POOL,
   buildFavicon,
   fontSizeBump,
   normalizeAppearance,
   normalizeBrand,
+  normalizeProjectStatuses,
   normalizeSettings,
+  projectStatusColor,
   type AppearanceSettings,
   type AppSettings,
   type BrandSettings,
   type FontSize,
+  type ListProgressAlign,
+  type ListProgressDetail,
   type PageStyle,
+  type ProjectStatusDef,
 } from '@wbs/shared';
 
 export {
   BRAND_ACCENT,
   DEFAULT_APPEARANCE,
   DEFAULT_BRAND,
+  DEFAULT_CREATED_COLOR,
+  DEFAULT_IMP_HIGH_COLOR,
+  DEFAULT_IMP_LOW_COLOR,
+  DEFAULT_IMP_MID_COLOR,
+  DEFAULT_P0_COLOR,
+  DEFAULT_P1_COLOR,
+  DEFAULT_P2_COLOR,
+  DEFAULT_PROJECT_STATUSES,
   DEFAULT_SETTINGS,
+  DEFAULT_TITLE_COLOR,
+  DEFAULT_VERSION_COLOR,
+  MAX_PROJECT_STATUSES,
+  MAX_PROJECT_STATUS_NAME,
+  STATUS_COLOR_POOL,
   buildFavicon,
   fontSizeBump,
   normalizeAppearance,
   normalizeBrand,
+  normalizeProjectStatuses,
   normalizeSettings,
+  projectStatusColor,
   type AppearanceSettings,
   type AppSettings,
   type BrandSettings,
   type FontSize,
+  type ListProgressAlign,
+  type ListProgressDetail,
   type PageStyle,
+  type ProjectStatusDef,
 };
 
 export interface PresetColor {
@@ -85,12 +121,20 @@ export function loadBrand(): BrandSettings {
   return readCache().brand;
 }
 
+export function loadStatuses(): ProjectStatusDef[] {
+  return readCache().statuses;
+}
+
 export function saveAppearance(value: AppearanceSettings): void {
   writeCache({ ...readCache(), appearance: value });
 }
 
 export function saveBrand(value: BrandSettings): void {
   writeCache({ ...readCache(), brand: value });
+}
+
+export function saveStatuses(value: ProjectStatusDef[]): void {
+  writeCache({ ...readCache(), statuses: value });
 }
 
 /** Cache the settings received from the server so the next paint is instant. */

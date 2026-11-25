@@ -46,6 +46,98 @@
   cursor: pointer;
 }
 
+/* 甘特工具栏的行选择浮层：搜索 + 复选列表，超高时内部滚动。 */
+.gantt-rows-picker {
+  width: 450px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gantt-rows-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  font-size: calc(11px + var(--fs-bump));
+  color: var(--text-4);
+}
+
+.gantt-rows-tools .ant-btn {
+  flex: none;
+  padding: 0 4px;
+  height: 22px;
+  line-height: 22px;
+  font-size: calc(11px + var(--fs-bump));
+  white-space: nowrap;
+}
+
+.gantt-rows-list {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 4px;
+  background: var(--surface);
+}
+
+.gantt-rows-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.gantt-rows-item:hover {
+  background: var(--surface-soft);
+}
+
+.gantt-rows-item.is-off .gantt-rows-title,
+.gantt-rows-item.is-off .gantt-rows-code {
+  color: var(--text-4);
+  text-decoration: line-through;
+}
+
+.gantt-rows-code {
+  flex: none;
+  font-family: Consolas, 'SFMono-Regular', Menlo, monospace;
+  font-size: calc(10px + var(--fs-bump));
+  color: var(--text-4);
+  min-width: 26px;
+}
+
+.gantt-rows-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: calc(11.5px + var(--fs-bump));
+  color: var(--text-2);
+}
+
+.gantt-rows-tip {
+  padding: 10px 6px;
+  text-align: center;
+  color: var(--text-4);
+  font-size: calc(11px + var(--fs-bump));
+}
+
+.gantt-rows-empty {
+  position: sticky;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  padding: 18px 16px;
+  color: var(--text-4);
+  font-size: calc(12px + var(--fs-bump));
+}
+
 .gantt-spacer {
   flex: 1 1 auto;
 }
@@ -88,6 +180,11 @@
   background: var(--p0);
 }
 
+/* 版本类型：与列表里的「版本」标识同一套颜色 */
+.gantt-legend-dot.version {
+  background: var(--version-color, #3538cd);
+}
+
 .gantt-notice {
   padding: 7px 12px;
   background: #fffaeb;
@@ -110,12 +207,49 @@
   min-height: 366px; /* 工具条 + 时间轴 320px 的安全下限 */
 }
 
+.gantt-split-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 320px;
+}
+
 .gantt-scroll {
   position: relative;
   flex: 1 1 auto;
   overflow: auto;
   min-height: 320px;
   max-height: none;
+}
+
+/* 任务栏与时间轴之间的可拖拽分割线（覆盖在滚动区之上，
+   始终贴住 sticky 任务栏的右边缘，横向滚动时位置不变）。 */
+.gantt-splitter {
+  position: absolute;
+  top: 0;
+  bottom: 14px; /* 让出底部横向滚动条 */
+  width: 11px;
+  margin-left: -5px;
+  z-index: 8;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.gantt-splitter::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 5px;
+  width: 1px;
+  background: transparent;
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+
+.gantt-splitter:hover::after,
+.gantt-splitter.is-dragging::after {
+  background: var(--primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 30%, transparent);
 }
 
 .gantt-canvas {
@@ -256,13 +390,21 @@
   place-items: center;
   padding: 0;
   border: 0;
+  border-radius: 3px;
   background: transparent;
   color: var(--text-4);
   cursor: pointer;
-  transition: transform 0.15s, color 0.15s;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+/* Keep the caret the same visual weight as the list view (8px + font bump). */
+.gantt-chevron .anticon {
+  font-size: calc(8px + var(--fs-bump));
+  transition: transform 0.16s ease;
 }
 
 .gantt-chevron:hover {
+  background: var(--surface-muted);
   color: var(--text-2);
 }
 
@@ -304,8 +446,43 @@
   text-decoration: line-through;
 }
 
+/* 版本任务完成后不显示删除线。 */
+.gantt-row.is-done.is-version-task .gantt-row-title {
+  text-decoration: none;
+}
+
 .gantt-row.is-done .gantt-code {
   color: #c3c9d4;
+}
+
+/* 标题类型：左侧任务名与行底色沿用「设置 → 外观 → 标题类型颜色」 */
+.gantt-row.is-title-task .gantt-cell-left {
+  /* Opaque on purpose: a translucent tint lets bars, grid lines and the
+     today marker show through once the timeline is scrolled underneath. */
+  background: color-mix(in srgb, var(--title-color, var(--primary)) 10%, var(--surface));
+}
+
+.gantt-row.is-title-task:hover .gantt-cell-left {
+  background: color-mix(in srgb, var(--title-color, var(--primary)) 18%, var(--surface));
+}
+
+.gantt-row.is-title-task .gantt-row-title {
+  color: var(--title-color, var(--primary));
+  font-weight: 600;
+}
+
+/* 版本类型任务：左侧任务名与底色沿用列表模式里「版本」标识的靛蓝色系 */
+.gantt-row.is-version-task .gantt-cell-left {
+  background: color-mix(in srgb, var(--version-color, #3538cd) 7%, var(--surface));
+}
+
+.gantt-row.is-version-task:hover .gantt-cell-left {
+  background: color-mix(in srgb, var(--version-color, #3538cd) 13%, var(--surface));
+}
+
+.gantt-row.is-version-task .gantt-row-title {
+  color: var(--version-color, #3538cd);
+  font-weight: 600;
 }
 
 .gantt-cell-time {
@@ -321,6 +498,9 @@
   bottom: 0;
   pointer-events: none;
   z-index: 0;
+  /* Lines outside the visible range (negative offsets, e.g. the today marker
+     after scrolling) must not leak into the task column. */
+  overflow: hidden;
 }
 
 .gantt-grid-days {
@@ -442,10 +622,75 @@
     0 1px 2px rgba(16, 24, 40, 0.12);
 }
 
+/* 标题类型：整条改用标题色（浅底为标题色淡化，进度仍用纯色填充） */
+.gantt-bar.is-title-task {
+  --bar-bg: color-mix(in srgb, var(--title-color, var(--primary)) 45%, #ffffff);
+  --bar-fill: var(--title-color, var(--primary));
+}
+
+/* 版本类型：整条改用列表里「版本」标识的靛蓝色 */
+.gantt-bar.is-version-task {
+  --bar-bg: color-mix(in srgb, var(--version-color, #3538cd) 45%, #ffffff);
+  --bar-fill: var(--version-color, #3538cd);
+}
+
 /* 单日任务用小圆角胶囊表示 */
 .gantt-bar.is-milestone {
   padding: 0 3px;
   border-radius: 8px;
+}
+
+/* Single-date markers (only `start` or only `due`): keep the marker on its
+   day and put the label outside it so it never pretends to span days.
+   A small solid triangle points along the timeline; its colour follows the
+   task's own tone via --bar-fill. */
+.gantt-bar.is-due-only,
+.gantt-bar.is-start-only {
+  overflow: visible;
+  padding: 0;
+}
+
+/* Right-pointing arrow, sitting just outside the marker. */
+.gantt-bar.is-due-only::before,
+.gantt-bar.is-start-only::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 9px solid var(--bar-fill);
+  pointer-events: none;
+}
+
+/* Due-only: arrow leads into the marker from the left; label sits right. */
+.gantt-bar.is-due-only::before {
+  right: calc(100% + 2px);
+}
+
+/* Start-only: label sits left; arrow leaves the marker to the right. */
+.gantt-bar.is-start-only::after {
+  left: calc(100% + 2px);
+}
+
+.gantt-bar.is-due-only .gantt-bar-label,
+.gantt-bar.is-start-only .gantt-bar-label {
+  position: absolute;
+  overflow: visible;
+  color: var(--text-3);
+  font-size: calc(9.5px + var(--fs-bump));
+  font-weight: 500;
+  text-shadow: none;
+}
+
+.gantt-bar.is-due-only .gantt-bar-label {
+  left: calc(100% + 14px);
+}
+
+.gantt-bar.is-start-only .gantt-bar-label {
+  right: calc(100% + 14px);
 }
 
 .gantt-bar-label {

@@ -274,6 +274,9 @@ $copyAction = {
 $stopAction = {
   if ($script:closing) { return }
   Write-TrayLog '开始停止后台服务（等同 background_stop.bat）。'
+  # 立即反馈：先把图标隐藏、提示改为正在停止，用户点完菜单马上看到响应，
+  # 不必等 stop 命令跑完（旧版同步等待 20 秒时图标一直卡在原状态）。
+  try { $script:notify.Visible = $false } catch { }
   try { $script:notify.Text = 'WBS 工作台 · 正在停止…' } catch { }
   if (-not $script:nodeExe) {
     Write-TrayLog '未找到可用的 Node 运行时，无法执行停止命令，仅关闭托盘。'
@@ -290,7 +293,8 @@ $stopAction = {
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
     $proc = [System.Diagnostics.Process]::Start($psi)
-    if (-not $proc.WaitForExit(20000)) {
+    # 停止链路已去掉 PowerShell/WMI 冷启动，通常 1 秒内完成；这里只做兜底等待。
+    if (-not $proc.WaitForExit(8000)) {
       Write-TrayLog '停止命令超时，继续退出托盘。'
     } else {
       Write-TrayLog ("停止命令结束，退出码 {0}。" -f $proc.ExitCode)

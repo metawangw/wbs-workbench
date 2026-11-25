@@ -5,13 +5,14 @@ import { spawn } from 'node:child_process';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { marked } from 'marked';
 import express, { type ErrorRequestHandler, type NextFunction, type Request, type Response } from 'express';
 import { PathError, ROOT, WEB_DIST, decodeProjectId, getDataRoot, resolveProjectPath, setDataRoot } from './paths';
 import {
   DEFAULT_SETTINGS,
+  isProjectPageKey,
   normalizeAppearance,
   normalizeBrand,
+  normalizeProjectStatuses,
   normalizeSettings,
   type AppSettings,
 } from '@wbs/shared';
@@ -32,7 +33,12 @@ import {
   renameProjectFolder,
   renameSection,
   reorderProjects,
+  updateSectionDescription,
+  updateMilestoneTasks,
+  updateProgress,
   updateProjectMeta,
+  updateProjectPage,
+  updateProjectPageOrder,
   updateTask,
 } from './repo';
 import { broadcast, sseHandler } from './sse';
@@ -44,7 +50,10 @@ const CONFIG_FILE = path.join(ROOT, '.wbs-config.json');
 
 const app = express();
 app.disable('x-powered-by');
-app.use(express.json({ limit: '1mb' }));
+// The HTML/PDF export posts a finished document, which is larger than a
+// regular API payload; every other route stays tiny by comparison.
+app.use(express.json({ limit: '10mb' }));
+const MAX_EXPORT_HTML = 9_500_000;
 
 type AsyncHandler = (req: Request, res: Response, next: NextFunction) => Promise<unknown>;
 
@@ -179,7 +188,10 @@ app.put('/api/settings', wrap(async (req, res) => {
   const brand = 'brand' in body
     ? normalizeBrand({ ...current.brand, ...(body.brand as Record<string, unknown>) })
     : current.brand;
-  const next: AppSettings = { appearance, brand };
+  const statuses = 'statuses' in body
+    ? normalizeProjectStatuses(body.statuses)
+    : current.statuses;
+  const next: AppSettings = { appearance, brand, statuses };
   await writeConfigFile({ settings: next });
   broadcast({ type: 'settings-changed', settings: next, at: Date.now() });
   res.json(next);
@@ -236,7 +248,7 @@ app.get(
 );
 
 // ---------------------------------------------------------------------------
-// Project file actions: open with the OS, or export the rendered document.
+// Project file actions: open with the OS, or export the current view.
 // Every handler goes through projectPath() -> resolveProjectPath() so the
 // data-root sandbox (relative only, no hidden segments, .md only) still holds.
 // ---------------------------------------------------------------------------
@@ -251,138 +263,6 @@ function safeFilename(name: string, fallback: string): string {
 function attachmentDisposition(filename: string): string {
   const ascii = filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-/**
- * Rewrite relative `src`/`href` targets to absolute `file://` URLs so that
- * images referenced from the Markdown resolve when the exported HTML is opened
- * outside the workbench. Absolute URLs, data URIs and in-page anchors are kept.
- */
-function absolutizeAssets(html: string, baseDir: string): string {
-  const rewrite = (raw: string): string => {
-    const value = raw.trim();
-    if (!value) return raw;
-    if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(value)) return raw;
-    let decoded = value;
-    try {
-      decoded = decodeURIComponent(value);
-    } catch {
-      decoded = value;
-    }
-    return pathToFileURL(path.resolve(baseDir, decoded)).href;
-  };
-
-  return html.replace(
-    /(\s(?:src|href)=")([^"]*)(")/gi,
-    (_match: string, prefix: string, value: string, suffix: string) =>
-      `${prefix}${rewrite(value)}${suffix}`,
-  );
-}
-
-/** Wrap rendered Markdown into a standalone, readable HTML document. */
-function buildHtmlDocument(title: string, metaLine: string, bodyHtml: string): string {
-  const generated = new Date().toLocaleString('zh-CN', { hour12: false });
-  const meta = metaLine ? `<p class="doc-meta">${metaLine}</p>` : '';
-  return `<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${escapeHtml(title)}</title>
-<style>
-  :root { color-scheme: light; }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    padding: 40px 48px 64px;
-    background: #ffffff;
-    color: #1f2329;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif;
-    font-size: 14px;
-    line-height: 1.7;
-  }
-  .doc-head { border-bottom: 1px solid #e5e7eb; padding-bottom: 12px; margin-bottom: 20px; }
-  .doc-title { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: .2px; }
-  .doc-meta { margin: 6px 0 0; color: #6b7280; font-size: 12px; }
-  main { max-width: 900px; }
-  h1, h2, h3, h4 { line-height: 1.35; margin: 1.4em 0 .6em; font-weight: 650; }
-  h1 { font-size: 22px; }
-  h2 { font-size: 18px; padding-bottom: 6px; border-bottom: 1px solid #eef0f3; }
-  h3 { font-size: 15px; }
-  h4 { font-size: 14px; }
-  p, ul, ol, blockquote, table { margin: .6em 0; }
-  ul, ol { padding-left: 22px; }
-  li { margin: .18em 0; }
-  li input[type="checkbox"] { margin-right: 6px; }
-  code {
-    font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
-    font-size: .92em;
-    background: #f4f5f7;
-    padding: 1px 5px;
-    border-radius: 4px;
-  }
-  pre { background: #f4f5f7; padding: 12px 14px; border-radius: 8px; overflow-x: auto; }
-  pre code { background: none; padding: 0; }
-  blockquote { margin-left: 0; padding: 4px 14px; color: #4b5563; border-left: 3px solid #dfe3e8; }
-  table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  th, td { border: 1px solid #e5e7eb; padding: 6px 10px; text-align: left; vertical-align: top; }
-  th { background: #f7f8fa; font-weight: 600; }
-  img { max-width: 100%; height: auto; }
-  a { color: #1677ff; text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  hr { border: 0; border-top: 1px solid #e5e7eb; margin: 24px 0; }
-  .doc-foot { margin-top: 40px; color: #9aa1a9; font-size: 11px; }
-  @media print {
-    body { padding: 0; }
-    main { max-width: none; }
-    .doc-foot { display: none; }
-  }
-</style>
-</head>
-<body>
-  <header class="doc-head">
-    <h1 class="doc-title">${escapeHtml(title)}</h1>
-    ${meta}
-  </header>
-  <main>${bodyHtml}</main>
-  <footer class="doc-foot">导出自 WBS 工作台 · ${escapeHtml(generated)}</footer>
-</body>
-</html>
-`;
-}
-
-/** Render the project's Markdown into a standalone HTML document. */
-async function renderProjectDocument(
-  pid: string,
-): Promise<{ abs: string; name: string; html: string }> {
-  const abs = projectPath(pid);
-  const stat = await fs.stat(abs).catch(() => null);
-  if (!stat || !stat.isFile()) throw new HttpError(404, '任务 Markdown 文件不存在');
-
-  const detail = await getProject(pid);
-  const name = detail.name || path.basename(abs, path.extname(abs));
-  const markdown = await fs.readFile(abs, 'utf8');
-
-  const rendered = marked.parse(markdown, { async: false });
-  const rawHtml = typeof rendered === 'string' ? rendered : await rendered;
-  const bodyHtml = absolutizeAssets(rawHtml, path.dirname(abs));
-
-  const metaBits: string[] = [];
-  if (detail.code) metaBits.push(`编号 ${escapeHtml(detail.code)}`);
-  if (detail.status) metaBits.push(`状态 ${escapeHtml(detail.status)}`);
-  if (detail.updated) metaBits.push(`更新 ${escapeHtml(detail.updated)}`);
-  metaBits.push(`共 ${detail.stats.total} 条任务 · 完成 ${detail.stats.done} 条`);
-
-  return { abs, name, html: buildHtmlDocument(name, metaBits.join(' · '), bodyHtml) };
 }
 
 /** Locate a Chromium-based browser for headless PDF printing. */
@@ -576,23 +456,27 @@ app.post(
   }),
 );
 
-app.get(
-  '/api/projects/:pid/export/html',
+/**
+ * Print a client-rendered "what you see" document to PDF.
+ *
+ * The browser is the only place that knows how the board/list currently looks
+ * (filters, title-task switch, expansion state, appearance colours), so the web
+ * app posts the finished standalone HTML and this route only turns it into a
+ * PDF via headless Edge/Chrome.
+ */
+app.post(
+  '/api/export/pdf',
   wrap(async (req, res) => {
-    const { name, html } = await renderProjectDocument(req.params.pid);
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Content-Disposition', attachmentDisposition(`${safeFilename(name, 'wbs')}.html`));
-    res.send(html);
-  }),
-);
+    const html = typeof req.body?.html === 'string' ? req.body.html : '';
+    if (!html.trim()) throw new HttpError(400, '缺少要导出的内容');
+    if (html.length > MAX_EXPORT_HTML) throw new HttpError(413, '导出内容过大，请先收起部分任务');
 
-app.get(
-  '/api/projects/:pid/export/pdf',
-  wrap(async (req, res) => {
-    const { name, html } = await renderProjectDocument(req.params.pid);
+    const rawName = typeof req.body?.filename === 'string' ? req.body.filename : '';
+    const filename = `${safeFilename(rawName, 'wbs')}.pdf`;
+
     const pdf = await renderPdfBuffer(html);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', attachmentDisposition(`${safeFilename(name, 'wbs')}.pdf`));
+    res.setHeader('Content-Disposition', attachmentDisposition(filename));
     res.send(pdf);
   }),
 );
@@ -766,6 +650,7 @@ app.patch(
       code: req.body?.code,
       status: req.body?.status,
       description: req.body?.description,
+      tags: req.body?.tags,
     });
     res.json({ ok: true });
   }),
@@ -774,6 +659,38 @@ app.patch(
 app.get(
   '/api/projects/:pid',
   wrap(async (req, res) => {
+    res.json(await getProject(req.params.pid));
+  }),
+);
+
+// 里程碑 / 风险 / 成本 / 相关方：各自一个 Markdown 标记块，写入项目文件本体。
+app.put(
+  '/api/projects/:pid/pages/:key',
+  wrap(async (req, res) => {
+    const key = req.params.key;
+    if (!isProjectPageKey(key)) throw new HttpError(400, '未知的页面类型');
+    const abs = projectPath(req.params.pid);
+    await updateProjectPage(abs, key, req.body?.text);
+    res.json(await getProject(req.params.pid));
+  }),
+);
+
+// 页面展示顺序（拖动调整后写回 Front Matter 的 pageOrder）。
+app.put(
+  '/api/projects/:pid/page-order',
+  wrap(async (req, res) => {
+    const abs = projectPath(req.params.pid);
+    await updateProjectPageOrder(abs, req.body?.order);
+    res.json(await getProject(req.params.pid));
+  }),
+);
+
+// 里程碑关联任务（写回 Front Matter 的 milestoneTasks）。
+app.put(
+  '/api/projects/:pid/milestone-tasks',
+  wrap(async (req, res) => {
+    const abs = projectPath(req.params.pid);
+    await updateMilestoneTasks(abs, req.body?.ids);
     res.json(await getProject(req.params.pid));
   }),
 );
@@ -798,6 +715,18 @@ app.post(
     await addProgress(abs, req.params.tid, {
       text: req.body?.text,
       author: req.body?.author,
+    });
+    res.json({ ok: true });
+  }),
+);
+
+app.patch(
+  '/api/projects/:pid/tasks/:tid/progress',
+  wrap(async (req, res) => {
+    const abs = projectPath(req.params.pid);
+    await updateProgress(abs, req.params.tid, {
+      line: req.body?.line,
+      text: req.body?.text,
     });
     res.json({ ok: true });
   }),
@@ -870,6 +799,18 @@ app.post(
   wrap(async (req, res) => {
     const abs = projectPath(req.params.pid);
     const result = await deleteSection(abs, { section: req.body?.section });
+    res.json(result);
+  }),
+);
+
+app.post(
+  '/api/projects/:pid/sections/description',
+  wrap(async (req, res) => {
+    const abs = projectPath(req.params.pid);
+    const result = await updateSectionDescription(abs, {
+      section: req.body?.section,
+      description: req.body?.description,
+    });
     res.json(result);
   }),
 );
