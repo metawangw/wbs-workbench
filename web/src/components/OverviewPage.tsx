@@ -497,7 +497,7 @@ export default function OverviewPage() {
         <header className="overview-card-head overview-list-head">
           <div>
             <h2 className="overview-card-title">
-              {activeTab === 'focus' ? '今日关注' : '项目列表'}
+              {activeTab === 'focus' ? '今日关注' : '历史快讯'}
             </h2>
           </div>
           <div className="overview-head-tools">
@@ -519,7 +519,7 @@ export default function OverviewPage() {
                   label: (
                     <span className="overview-tab-label">
                       <UnorderedListOutlined />
-                      项目列表
+                      历史快讯
                     </span>
                   ),
                   value: 'projects',

@@ -1,17 +1,19 @@
 import { useMemo, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
-import { App as AntApp, Button, Dropdown, Input, Modal, Popconfirm, Tooltip, type MenuProps } from 'antd';
+import { App as AntApp, Input, Modal, Popconfirm, Tooltip } from 'antd';
 import {
   AppstoreOutlined,
   DeleteOutlined,
+  DownOutlined,
   EditOutlined,
   FileAddOutlined,
   FolderAddOutlined,
-  FolderOutlined,
   PlusOutlined,
+  ProjectOutlined,
   ReloadOutlined,
   SearchOutlined,
   SettingOutlined,
+  UpOutlined,
 } from '@ant-design/icons';
 import type { ProjectSummary } from '@wbs/shared';
 import { useStore } from '../store';
@@ -112,6 +114,18 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const [editingFolder, setEditingFolder] = useState<string | null>(null);
   const [folderDraft, setFolderDraft] = useState('');
   const [folderSaving, setFolderSaving] = useState(false);
+  /** 收起的文件夹（按文件夹相对路径记录，刷新后保持）。 */
+  const [collapsedFolders, setCollapsedFolders] = useState<string[]>(() => {
+    try {
+      const raw = window.localStorage.getItem('wbs.sidebar.collapsedFolders');
+      const parsed: unknown = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed)
+        ? parsed.filter((item): item is string => typeof item === 'string')
+        : [];
+    } catch {
+      return [];
+    }
+  });
   const dragIdRef = useRef<string | null>(null);
   const dragFolderRef = useRef<string | null>(null);
   const lastDragEndRef = useRef(0);
@@ -211,24 +225,21 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       });
   };
 
-  const createMenu: MenuProps = {
-    items: [
-      {
-        key: 'project',
-        icon: <FileAddOutlined />,
-        label: '新建项目',
-      },
-      {
-        key: 'folder',
-        icon: <FolderAddOutlined />,
-        label: '新建文件夹',
-      },
-    ],
-    onClick: ({ key }) => {
-      onNavigate?.();
-      if (key === 'project') openNewProject();
-      else openNewFolder();
-    },
+  const toggleFolderCollapsed = (dir: string) => {
+    setCollapsedFolders((previous) => {
+      const next = previous.includes(dir)
+        ? previous.filter((item) => item !== dir)
+        : [...previous, dir];
+      try {
+        window.localStorage.setItem(
+          'wbs.sidebar.collapsedFolders',
+          JSON.stringify(next),
+        );
+      } catch {
+        /* 隐私模式等场景写入失败时忽略，折叠仍在本会话生效。 */
+      }
+      return next;
+    });
   };
 
   return (
@@ -273,24 +284,40 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <AppstoreOutlined />
           项目总览
         </span>
-        <span className="overview-link-count">{projects.length}</span>
       </button>
 
       <div className="side-section-row">
-        <div className="side-section-label">项目 · {projects.length}</div>
-        <Dropdown
-          menu={createMenu}
-          trigger={['click']}
-          placement="bottomRight"
-        >
-          <Button
-            className="side-add-btn"
-            type="text"
-            size="small"
-            icon={<PlusOutlined />}
-            aria-label="新建项目或文件夹"
-          />
-        </Dropdown>
+        <span className="side-section-title">
+          <ProjectOutlined />
+          项目列表
+        </span>
+        <span className="side-row-tools">
+          <button
+            type="button"
+            className="side-row-btn"
+            title="新建项目"
+            aria-label="新建项目"
+            onClick={() => {
+              onNavigate?.();
+              openNewProject();
+            }}
+          >
+            <FileAddOutlined />
+          </button>
+          <button
+            type="button"
+            className="side-row-btn"
+            title="新建文件夹"
+            aria-label="新建文件夹"
+            onClick={() => {
+              onNavigate?.();
+              openNewFolder();
+            }}
+          >
+            <FolderAddOutlined />
+          </button>
+        </span>
+        <span className="side-row-count">{projects.length}</span>
       </div>
 
       <div className="project-list">
@@ -333,6 +360,8 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           const hasChildFolder = folders.some(
             (folder) => folder !== dir && folder.startsWith(`${dir}/`),
           );
+          const isCollapsed = Boolean(dir) && collapsedFolders.includes(dir);
+          const visibleItems = isCollapsed ? [] : items;
 
           return (
             <div className="project-group" key={dir || '__root__'}>
@@ -407,10 +436,40 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                   }}
                   onDragEnd={clearDragState}
                 >
-                  <FolderOutlined />
+                  <button
+                    type="button"
+                    className="folder-toggle"
+                    title={isCollapsed ? '展开文件夹' : '收起文件夹'}
+                    aria-label={isCollapsed ? '展开文件夹' : '收起文件夹'}
+                    aria-expanded={!isCollapsed}
+                    draggable={false}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onDragStart={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggleFolderCollapsed(dir);
+                    }}
+                  >
+                    {isCollapsed ? <DownOutlined /> : <UpOutlined />}
+                  </button>
                   <span className="folder-label-name" title={dir}>
                     {dir.replace(/\//g, ' / ')}
                   </span>
+                  <button
+                    type="button"
+                    className="folder-action-btn"
+                    title="在此文件夹新建项目"
+                    aria-label="在此文件夹新建项目"
+                    onClick={() => {
+                      onNavigate?.();
+                      openNewProject(dir);
+                    }}
+                  >
+                    <PlusOutlined />
+                  </button>
                   <button
                     type="button"
                     className="folder-action-btn"
@@ -437,22 +496,10 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                       <DeleteOutlined />
                     </button>
                   </Popconfirm>
-                  <button
-                    type="button"
-                    className="folder-action-btn"
-                    title="在此文件夹新建项目"
-                    aria-label="在此文件夹新建项目"
-                    onClick={() => {
-                      onNavigate?.();
-                      openNewProject(dir);
-                    }}
-                  >
-                    <PlusOutlined />
-                  </button>
                 </div>
               ) : null}
 
-              {items.map((project) => {
+              {visibleItems.map((project) => {
                 const percent = project.stats.total
                   ? Math.round((project.stats.done / project.stats.total) * 100)
                   : 0;
@@ -541,7 +588,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 );
               })}
 
-              {items.length === 0 && dir && !hasChildFolder ? (
+              {items.length === 0 && dir && !hasChildFolder && !isCollapsed ? (
                 <div
                   className={`folder-empty${folderDrop === dir ? ' is-drop-target' : ''}`}
                   onDragOver={(event: DragEvent<HTMLDivElement>) => {
@@ -579,7 +626,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             {projects.length === 0 ? (
               <>
                 <p>还没有项目。</p>
-                <p>点击右上角 + 新建项目或文件夹。</p>
+                <p>悬停「项目列表」右侧按钮，新建项目或文件夹。</p>
               </>
             ) : (
               <p>没有匹配的项目。</p>

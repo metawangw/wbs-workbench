@@ -265,15 +265,6 @@ body.is-resizing-sidebar {
   border-color: #d1e0ff;
 }
 
-.side-section-label {
-  padding: 2px 7px 5px;
-  font-size: calc(9.5px + var(--fs-bump));
-  font-weight: 650;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-4);
-}
-
 .overview-link {
   display: flex;
   align-items: center;
@@ -311,41 +302,83 @@ body.is-resizing-sidebar {
   gap: 6px;
 }
 
-.overview-link-count {
-  font-size: calc(9.5px + var(--fs-bump));
-  color: var(--text-4);
-  background: var(--surface-muted);
-  border-radius: 99px;
-  padding: 0 6px;
-  font-variant-numeric: tabular-nums;
-}
-
-.overview-link.is-active .overview-link-count {
-  color: var(--primary);
-  background: var(--surface);
-}
-
 .side-section-row {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding-right: 4px;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  border-radius: 6px;
+  color: var(--text-2);
+  font-size: calc(12px + var(--fs-bump));
+  font-weight: 600;
+  transition: background 0.15s ease;
 }
 
-.side-section-row .side-section-label {
-  padding-bottom: 3px;
+.side-section-row:hover {
+  background: var(--surface-soft);
 }
 
-.side-add-btn.ant-btn {
-  color: var(--text-4);
+.side-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.side-row-tools {
+  position: absolute;
+  right: 28px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.side-section-row:hover .side-row-tools,
+.side-section-row:focus-within .side-row-tools {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.side-row-btn {
+  display: grid;
+  place-items: center;
   width: 20px;
   height: 20px;
-  min-width: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-4);
+  font-size: calc(11px + var(--fs-bump));
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
 }
 
-.side-add-btn.ant-btn:hover {
+.side-row-btn:hover {
   color: var(--primary);
   background: var(--primary-weak);
+}
+
+.side-row-count {
+  flex: none;
+  margin-left: auto;
+  min-width: 14px;
+  text-align: right;
+  font-size: calc(10.5px + var(--fs-bump));
+  color: var(--text-4);
+  font-variant-numeric: tabular-nums;
 }
 
 .folder-empty {
@@ -374,11 +407,42 @@ body.is-resizing-sidebar {
 .folder-label {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 6px 7px 2px;
+  gap: 6px;
+  padding: 5px 8px 3px;
+  border-radius: 5px;
+  background: var(--surface-soft);
   font-size: calc(10px + var(--fs-bump));
   font-weight: 600;
   color: var(--text-4);
+}
+
+.folder-label:hover {
+  background: var(--surface-muted);
+}
+
+/* 文件夹行首的展开 / 收起按钮，替代原来的文件夹图标。 */
+.folder-toggle {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: calc(10px + var(--fs-bump));
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.folder-toggle:hover {
+  color: var(--primary);
+  background: var(--primary-weak);
 }
 
 .project-item {
