@@ -534,7 +534,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                         <span className="project-code">{project.code}</span>
                       ) : null}
                       <span>
-                        {project.stats.open} 未完成 / {project.stats.total}
+                        {project.stats.done} 已完成 / {project.stats.total}
                       </span>
                     </div>
                   </button>

@@ -14,6 +14,11 @@ export type ListProgressDetail = 'label' | 'date' | 'full';
 /** 列表模式下「最新进展」的位置：靠单元格右侧 / 紧跟任务描述。 */
 export type ListProgressAlign = 'right' | 'left';
 
+/** 今日关注贴纸（每列）宽度范围与默认值，单位 px。 */
+export const FOCUS_CARD_WIDTH_MIN = 200;
+export const FOCUS_CARD_WIDTH_MAX = 520;
+export const DEFAULT_FOCUS_CARD_WIDTH = 272;
+
 export interface AppearanceSettings {
   pageStyle: PageStyle;
   fontSize: FontSize;
@@ -40,6 +45,8 @@ export interface AppearanceSettings {
   listProgressDetail: ListProgressDetail;
   /** 列表行「最新进展」是贴右还是紧跟任务标题。 */
   listProgressAlign: ListProgressAlign;
+  /** 今日关注看板中贴纸（项目列）的宽度。 */
+  focusCardWidth: number;
 }
 
 export interface BrandSettings {
@@ -170,6 +177,7 @@ export const DEFAULT_APPEARANCE: AppearanceSettings = {
   showCheckbox: true,
   listProgressDetail: 'full',
   listProgressAlign: 'right',
+  focusCardWidth: DEFAULT_FOCUS_CARD_WIDTH,
 };
 
 export const DEFAULT_BRAND: BrandSettings = {
@@ -206,6 +214,10 @@ export function normalizeAppearance(value: unknown): AppearanceSettings {
       : 'full';
   const listProgressAlign: ListProgressAlign =
     raw.listProgressAlign === 'left' ? 'left' : 'right';
+  const widthNum = Number(raw.focusCardWidth);
+  const focusCardWidth = Number.isFinite(widthNum)
+    ? Math.max(FOCUS_CARD_WIDTH_MIN, Math.min(FOCUS_CARD_WIDTH_MAX, Math.round(widthNum)))
+    : DEFAULT_FOCUS_CARD_WIDTH;
   return {
     pageStyle,
     fontSize,
@@ -236,6 +248,7 @@ export function normalizeAppearance(value: unknown): AppearanceSettings {
     // 旧配置没有这两个键：默认「完整内容 + 靠右」，正文尽量展示完整。
     listProgressDetail,
     listProgressAlign,
+    focusCardWidth,
   };
 }
 
@@ -244,7 +257,9 @@ export function normalizeBrand(value: unknown): BrandSettings {
   const raw = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   // Older config files have no `show` key — default to visible.
   const show = raw.show !== false;
-  const title = typeof raw.title === 'string' && raw.title.trim() ? raw.title : DEFAULT_BRAND.title;
+  // Allow an empty title: the user must be able to clear it before typing a new
+  // name. Display layers already fall back to the default when it is empty.
+  const title = typeof raw.title === 'string' ? raw.title : DEFAULT_BRAND.title;
   const subtitle = typeof raw.subtitle === 'string' ? raw.subtitle : DEFAULT_BRAND.subtitle;
   // Allow an empty icon: the user must be able to clear it before typing a new
   // glyph. Display layers already fall back to 'W' when icon is empty.

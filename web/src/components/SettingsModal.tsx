@@ -30,6 +30,9 @@ import StatusIcon from './StatusIcon';
 import {
   DEFAULT_BRAND,
   DEFAULT_CREATED_COLOR,
+  DEFAULT_FOCUS_CARD_WIDTH,
+  FOCUS_CARD_WIDTH_MAX,
+  FOCUS_CARD_WIDTH_MIN,
   DEFAULT_IMP_HIGH_COLOR,
   DEFAULT_IMP_LOW_COLOR,
   DEFAULT_IMP_MID_COLOR,
@@ -68,7 +71,7 @@ const SECTIONS: Array<{
   {
     key: 'appearance',
     label: '外观',
-    keywords: '主题 颜色 字号 紧凑 优先级 标记 暗色 最新进展 靠左 靠右',
+    keywords: '主题 颜色 字号 紧凑 优先级 标记 暗色 最新进展 靠左 靠右 今日关注 贴纸 宽度',
     icon: <BgColorsOutlined />,
   },
   {
@@ -635,6 +638,22 @@ export default function SettingsModal() {
                   <Switch
                     checked={appearance.showCheckbox !== false}
                     onChange={(showCheckbox) => setAppearance({ showCheckbox })}
+                  />
+                </SettingRow>
+              </SectionCard>
+
+              <SectionCard title="今日关注">
+                <SettingRow
+                  title="贴纸宽度"
+                  desc={`当前 ${appearance.focusCardWidth ?? DEFAULT_FOCUS_CARD_WIDTH}px，调整看板中每张贴纸的宽度`}
+                >
+                  <Slider
+                    className="ob-focus-width-slider"
+                    min={FOCUS_CARD_WIDTH_MIN}
+                    max={FOCUS_CARD_WIDTH_MAX}
+                    step={4}
+                    value={appearance.focusCardWidth ?? DEFAULT_FOCUS_CARD_WIDTH}
+                    onChange={(focusCardWidth) => setAppearance({ focusCardWidth })}
                   />
                 </SettingRow>
               </SectionCard>

@@ -603,10 +603,7 @@ export default function OverviewPage() {
                     {project.stats.done}/{project.stats.total}
                   </span>
                 </span>
-                <span className="index-open num">
-                  {project.stats.open}
-                  <span className="index-unit"> 项</span>
-                </span>
+                <span className="index-open num">{project.stats.open}</span>
                 <span className={`index-p0 num${project.stats.p0 > 0 ? ' danger' : ''}`}>
                   {project.stats.p0 || '—'}
                 </span>

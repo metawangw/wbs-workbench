@@ -2693,12 +2693,6 @@ body.ov-col-resizing {
   color: var(--text);
 }
 
-.index-unit {
-  font-size: calc(9.5px + var(--fs-bump));
-  font-weight: 400;
-  color: var(--text-4);
-}
-
 .index-p0,
 .index-p1,
 .index-p2,
@@ -4866,6 +4860,10 @@ body.compact-ui .drawer-section {
   width: 170px;
 }
 
+.ob-focus-width-slider {
+  width: 220px;
+}
+
 /* 设置 → 项目状态 */
 .status-def-list > .status-def-row:first-child {
   border-top: 0;
@@ -5336,7 +5334,7 @@ body.compact-ui .drawer-section {
 }
 
 .focus-col {
-  flex: 0 0 272px;
+  flex: 0 0 var(--focus-card-width, 272px);
   min-width: 0;
   display: flex;
   flex-direction: column;

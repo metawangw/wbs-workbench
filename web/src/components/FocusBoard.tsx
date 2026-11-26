@@ -8,6 +8,7 @@ import {
   PushpinOutlined,
 } from '@ant-design/icons';
 import {
+  DEFAULT_FOCUS_CARD_WIDTH,
   dueBadge,
   isLockedProjectStatus,
   type FocusTask,
@@ -212,6 +213,7 @@ export default function FocusBoard({
   projects: ProjectSummary[];
   onShowProjects: () => void;
 }) {
+  const focusCardWidth = useStore((state) => state.appearance.focusCardWidth);
   const columns = projects.filter((project) => (project.focusTasks?.length ?? 0) > 0);
 
   if (columns.length === 0) {
@@ -231,7 +233,14 @@ export default function FocusBoard({
   }
 
   return (
-    <div className="focus-board">
+    <div
+      className="focus-board"
+      style={
+        {
+          '--focus-card-width': `${focusCardWidth ?? DEFAULT_FOCUS_CARD_WIDTH}px`,
+        } as CSSProperties
+      }
+    >
       {columns.map((project) => {
         const tasks = project.focusTasks ?? [];
         return (

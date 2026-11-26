@@ -149,12 +149,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const brandTitle = brand.title || 'WBS 工作台';
     document.title =
       page === 'overview'
-        ? `项目总览 · ${brand.title}`
+        ? `项目总览 · ${brandTitle}`
         : project
-          ? `${project.name} · ${brand.title}`
-          : brand.title;
+          ? `${project.name} · ${brandTitle}`
+          : brandTitle;
   }, [page, project?.name, brand.title]);
 
   // One-shot deep link: /?project=…&task=… opens the task drawer.
