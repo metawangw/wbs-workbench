@@ -454,26 +454,42 @@ export default function OverviewPage() {
     <div className="overview-page">
       <div className="overview-kpis">
         <div className="overview-kpi">
-          <div className="overview-kpi-label">项目</div>
+          <div className="overview-kpi-info">
+            <div className="overview-kpi-label">项目</div>
+            <div className="overview-kpi-sub" title="本地 Markdown 项目">
+              本地 Markdown
+            </div>
+          </div>
           <div className="overview-kpi-value">{projects.length}</div>
-          <div className="overview-kpi-sub">本地 Markdown 项目</div>
         </div>
         <div className="overview-kpi">
-          <div className="overview-kpi-label">总任务</div>
+          <div className="overview-kpi-info">
+            <div className="overview-kpi-label">总任务</div>
+            <div className="overview-kpi-sub" title={`已完成 ${totals.done} 项`}>
+              已完成 {totals.done} 项
+            </div>
+          </div>
           <div className="overview-kpi-value">{totals.total}</div>
-          <div className="overview-kpi-sub">已完成 {totals.done} 项</div>
         </div>
         <div className="overview-kpi">
-          <div className="overview-kpi-label">未完成</div>
+          <div className="overview-kpi-info">
+            <div className="overview-kpi-label">未完成</div>
+            <div className="overview-kpi-sub" title={`整体完成率 ${completion}%`}>
+              完成率 {completion}%
+            </div>
+          </div>
           <div className="overview-kpi-value accent">{totals.open}</div>
-          <div className="overview-kpi-sub">整体完成率 {completion}%</div>
         </div>
         <div className="overview-kpi">
-          <div className="overview-kpi-label">已超时</div>
+          <div className="overview-kpi-info">
+            <div className="overview-kpi-label">已超时</div>
+            <div className="overview-kpi-sub" title={`今天到期 ${totals.today} 项`}>
+              今天到期 {totals.today} 项
+            </div>
+          </div>
           <div className={`overview-kpi-value${totals.overdue > 0 ? ' danger' : ''}`}>
             {totals.overdue}
           </div>
-          <div className="overview-kpi-sub">今天到期 {totals.today} 项</div>
         </div>
       </div>
 

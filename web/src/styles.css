@@ -2251,23 +2251,33 @@ body.is-resizing-sidebar {
 
 .overview-kpi {
   min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 6px 10px;
+  padding: 10px 12px;
   box-shadow: var(--shadow-sm);
 }
 
+.overview-kpi-info {
+  min-width: 0;
+}
+
 .overview-kpi-label {
-  font-size: calc(11px + var(--fs-bump));
+  font-size: calc(10px + var(--fs-bump));
+  line-height: 1.2;
   color: var(--text-3);
 }
 
 .overview-kpi-value {
-  margin-top: 2px;
-  font-size: calc(21px + var(--fs-bump));
+  flex: none;
+  margin-top: 0;
+  font-size: calc(22px + var(--fs-bump));
   font-weight: 650;
-  line-height: 1.15;
+  line-height: 1;
   letter-spacing: -0.02em;
   color: var(--text);
 }
@@ -2281,9 +2291,13 @@ body.is-resizing-sidebar {
 }
 
 .overview-kpi-sub {
-  margin-top: 2px;
-  font-size: calc(9.5px + var(--fs-bump));
+  margin-top: 4px;
+  font-size: calc(9px + var(--fs-bump));
+  line-height: 1.2;
   color: var(--text-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .overview-card {
@@ -3477,6 +3491,13 @@ body.ov-col-resizing {
   .content-inner {
     padding-left: 12px;
     padding-right: 12px;
+  }
+  .overview-kpi {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+  .overview-kpi-value {
+    font-size: calc(18px + var(--fs-bump));
   }
   .filter-search {
     width: 210px;
@@ -4861,7 +4882,8 @@ body.compact-ui .drawer-section {
 }
 
 .ob-focus-width-slider {
-  width: 220px;
+  width: 200px;
+  margin-right: 4px;
 }
 
 /* 设置 → 项目状态 */

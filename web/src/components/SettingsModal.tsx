@@ -643,10 +643,7 @@ export default function SettingsModal() {
               </SectionCard>
 
               <SectionCard title="今日关注">
-                <SettingRow
-                  title="贴纸宽度"
-                  desc={`当前 ${appearance.focusCardWidth ?? DEFAULT_FOCUS_CARD_WIDTH}px，调整看板中每张贴纸的宽度`}
-                >
+                <SettingRow title="贴纸宽度">
                   <Slider
                     className="ob-focus-width-slider"
                     min={FOCUS_CARD_WIDTH_MIN}
@@ -655,6 +652,18 @@ export default function SettingsModal() {
                     value={appearance.focusCardWidth ?? DEFAULT_FOCUS_CARD_WIDTH}
                     onChange={(focusCardWidth) => setAppearance({ focusCardWidth })}
                   />
+                  <Tooltip title="恢复默认">
+                    <button
+                      type="button"
+                      className="ob-color-reset"
+                      onClick={() =>
+                        setAppearance({ focusCardWidth: DEFAULT_FOCUS_CARD_WIDTH })
+                      }
+                      aria-label="恢复默认贴纸宽度"
+                    >
+                      <ReloadOutlined />
+                    </button>
+                  </Tooltip>
                 </SettingRow>
               </SectionCard>
 

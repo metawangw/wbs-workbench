@@ -16,7 +16,7 @@ export type ListProgressAlign = 'right' | 'left';
 
 /** 今日关注贴纸（每列）宽度范围与默认值，单位 px。 */
 export const FOCUS_CARD_WIDTH_MIN = 200;
-export const FOCUS_CARD_WIDTH_MAX = 520;
+export const FOCUS_CARD_WIDTH_MAX = 300;
 export const DEFAULT_FOCUS_CARD_WIDTH = 272;
 
 export interface AppearanceSettings {
