@@ -13,6 +13,7 @@ data/
 *.log
 *.tmp
 .tmp-*
+*.tar.gz
 .env
 .env.local
 
