@@ -9,12 +9,11 @@ import {
 } from '@ant-design/icons';
 import {
   dueBadge,
+  isLockedProjectStatus,
   type FocusTask,
-  type ProjectStatusDef,
   type ProjectSummary,
 } from '@wbs/shared';
 import { useStore } from '../store';
-import { projectStatusColor } from '../lib/settings';
 import { InlineMarkdown } from './atoms';
 
 /** Soft paper colours used when a sticker has no explicit background. */
@@ -61,14 +60,23 @@ function NoteActions({
   const setFocusColor = useStore((state) => state.setFocusColor);
   const toggleFocus = useStore((state) => state.toggleFocus);
   const { message } = AntApp.useApp();
+  const locked = isLockedProjectStatus(project.status);
 
   const color = (next: string) => {
+    if (locked) {
+      message.info('项目已归档或终止，仅可修改项目信息');
+      return;
+    }
     void setFocusColor(project.id, task.id, next).catch((error: unknown) => {
       message.error(error instanceof Error ? error.message : '设置底色失败');
     });
   };
 
   const dismiss = () => {
+    if (locked) {
+      message.info('项目已归档或终止，仅可修改项目信息');
+      return;
+    }
     void toggleFocus(project.id, task.id, true)
       .then(() => message.success('已从今日关注移除'))
       .catch((error: unknown) => {
@@ -116,7 +124,7 @@ function NoteActions({
           </div>
         }
       >
-        <button type="button" className="focus-note-icon" aria-label="设置贴纸底色">
+        <button type="button" className="focus-note-icon" aria-label="设置贴纸底色" disabled={locked}>
           <BgColorsOutlined />
         </button>
       </Popover>
@@ -125,6 +133,7 @@ function NoteActions({
           type="button"
           className="focus-note-icon"
           aria-label="从今日关注移除"
+          disabled={locked}
           onClick={dismiss}
         >
           <CloseOutlined />
@@ -198,11 +207,9 @@ function FocusNote({
 
 export default function FocusBoard({
   projects,
-  statuses,
   onShowProjects,
 }: {
   projects: ProjectSummary[];
-  statuses: ProjectStatusDef[];
   onShowProjects: () => void;
 }) {
   const columns = projects.filter((project) => (project.focusTasks?.length ?? 0) > 0);
@@ -230,15 +237,9 @@ export default function FocusBoard({
         return (
           <section className="focus-col" key={project.id}>
             <header className="focus-col-head">
-              <span
-                className="focus-col-dot"
-                style={{ background: projectStatusColor(project.status, statuses) }}
-              />
+              <PushpinFilled className="focus-col-pin" />
               <span className="focus-col-name" title={project.name}>
                 {project.name}
-              </span>
-              <span className="focus-col-count">
-                <PushpinFilled /> {tasks.length}
               </span>
             </header>
             <div className="focus-col-body">

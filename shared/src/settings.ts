@@ -52,10 +52,52 @@ export interface BrandSettings {
   iconRadius: number;
 }
 
-/** One selectable project status: a name plus the colour used to render it. */
+/** 项目状态前置图标库：key 持久化在配置里，label 用于设置页展示。 */
+export const PROJECT_STATUS_ICONS = [
+  { key: 'dot', label: '实心圆' },
+  { key: 'ring', label: '空心环' },
+  { key: 'ringDot', label: '环中点' },
+  { key: 'dashed', label: '虚线环' },
+  { key: 'half', label: '半填充' },
+  { key: 'threeQuarter', label: '四分之三填充' },
+  { key: 'check', label: '对勾圆' },
+  { key: 'pause', label: '暂停圆' },
+  { key: 'slash', label: '禁止圆' },
+  { key: 'square', label: '方块' },
+  { key: 'diamond', label: '菱形' },
+  { key: 'hexagon', label: '六边形' },
+  { key: 'flag', label: '旗帜' },
+  { key: 'bolt', label: '闪电' },
+  { key: 'star', label: '星形' },
+  { key: 'clock', label: '时钟' },
+  { key: 'archive', label: '归档盒' },
+  { key: 'target', label: '靶心' },
+] as const;
+
+export type ProjectStatusIconKey = (typeof PROJECT_STATUS_ICONS)[number]['key'];
+
+const PROJECT_STATUS_ICON_KEYS = new Set<string>(
+  PROJECT_STATUS_ICONS.map((item) => item.key),
+);
+
+/** 按状态名推断默认图标，兼容旧配置（没有 icon 字段）。 */
+export function defaultStatusIcon(name: string | undefined): ProjectStatusIconKey {
+  const value = name?.trim() ?? '';
+  if (/规划|待定|未启动|筹备/.test(value)) return 'dashed';
+  if (/进行|实施|开发|执行/.test(value)) return 'half';
+  if (/待.*验|验收|评审|测试/.test(value)) return 'threeQuarter';
+  if (/稳定|运营|完成|正常|上线/.test(value)) return 'check';
+  if (/暂停|挂起|搁置/.test(value)) return 'pause';
+  if (/终止|取消|失败|中止/.test(value)) return 'slash';
+  if (/归档|封存|关闭/.test(value)) return 'ringDot';
+  return 'ring';
+}
+
+/** One selectable project status: a name, colour and a leading icon key. */
 export interface ProjectStatusDef {
   name: string;
   color: string;
+  icon?: ProjectStatusIconKey;
 }
 
 export interface AppSettings {
@@ -105,10 +147,10 @@ export const STATUS_COLOR_POOL = [
 ];
 
 export const DEFAULT_PROJECT_STATUSES: ProjectStatusDef[] = [
-  { name: '规划中', color: '#7a5af8' },
-  { name: '进行中', color: '#2563eb' },
-  { name: '稳定运营', color: '#12b76a' },
-  { name: '已归档', color: '#667085' },
+  { name: '规划中', color: '#7a5af8', icon: 'dashed' },
+  { name: '进行中', color: '#2563eb', icon: 'half' },
+  { name: '稳定运营', color: '#12b76a', icon: 'check' },
+  { name: '已归档', color: '#667085', icon: 'ringDot' },
 ];
 
 export const DEFAULT_APPEARANCE: AppearanceSettings = {
@@ -239,7 +281,11 @@ export function normalizeProjectStatuses(value: unknown): ProjectStatusDef[] {
     const color = /^#[0-9a-fA-F]{6}$/.test(String(raw.color ?? ''))
       ? String(raw.color)
       : STATUS_COLOR_POOL[out.length % STATUS_COLOR_POOL.length];
-    out.push({ name, color });
+    const rawIcon = String(raw.icon ?? '');
+    const icon = PROJECT_STATUS_ICON_KEYS.has(rawIcon)
+      ? (rawIcon as ProjectStatusIconKey)
+      : defaultStatusIcon(name);
+    out.push({ name, color, icon });
     if (out.length >= MAX_PROJECT_STATUSES) break;
   }
   return out;
@@ -260,6 +306,26 @@ export function projectStatusColor(
   if (/稳定|运营|完成|正常/.test(value)) return '#12b76a';
   if (/归档|停止|暂停|下线/.test(value)) return '#667085';
   return '#2563eb';
+}
+
+/** Resolve the configured leading-icon key for a project status name. */
+export function projectStatusIcon(
+  name: string | undefined,
+  statuses: ProjectStatusDef[],
+): ProjectStatusIconKey {
+  const value = name?.trim();
+  if (!value) return 'ring';
+  const hit = statuses.find((status) => status.name === value);
+  if (hit?.icon && PROJECT_STATUS_ICON_KEYS.has(hit.icon)) return hit.icon;
+  return defaultStatusIcon(value);
+}
+
+/**
+ * 已归档 / 已终止的项目为只读状态：只允许修改项目信息（名称、编号、状态等），
+ * 任务、页面、分组、进展等内容一律不可编辑。按状态名匹配，兼容用户自定义的状态名。
+ */
+export function isLockedProjectStatus(status: string | undefined): boolean {
+  return /归档|终止/.test(status?.trim() ?? '');
 }
 
 /** Coerce an unknown value into a full, valid AppSettings object. */

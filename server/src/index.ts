@@ -9,6 +9,7 @@ import express, { type ErrorRequestHandler, type NextFunction, type Request, typ
 import { PathError, ROOT, WEB_DIST, decodeProjectId, getDataRoot, resolveProjectPath, setDataRoot } from './paths';
 import {
   DEFAULT_SETTINGS,
+  isLockedProjectStatus,
   isProjectPageKey,
   normalizeAppearance,
   normalizeBrand,
@@ -603,6 +604,29 @@ app.post(
     const folders = await persistFolderOrder(known, order);
     broadcast({ type: 'files-changed', at: Date.now() });
     res.json({ ...result, folders });
+  }),
+);
+
+// 已归档 / 已终止项目只允许修改项目信息；任务、页面、分组等写入一律拒绝。
+// 前端已禁用相应入口，这里再守一道，避免直接调接口绕过。
+app.use(
+  '/api/projects/:pid',
+  wrap(async (req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+      next();
+      return;
+    }
+    const subPath = req.path.replace(/^\/+|\/+$/g, '');
+    // PATCH /api/projects/:pid 修改项目信息，/move 属于项目组合管理，均保留。
+    if (!subPath || subPath === 'move') {
+      next();
+      return;
+    }
+    const project = await getProject(req.params.pid);
+    if (isLockedProjectStatus(project.status)) {
+      throw new HttpError(403, '项目已归档或终止，仅可修改项目信息');
+    }
+    next();
   }),
 );
 

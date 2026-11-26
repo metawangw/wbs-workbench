@@ -13,6 +13,7 @@ import {
   PROJECT_PAGE_LABELS,
   buildTaskRefIndex,
   lookupTaskRef,
+  isLockedProjectStatus,
   normalizeProjectPageOrder,
   type ProjectPageKey,
 } from '@wbs/shared';
@@ -143,9 +144,10 @@ export default function ProjectDetailModal() {
     .filter((section) => section.text.length > 0);
 
   const isEmpty = sections.length === 0;
+  const locked = isLockedProjectStatus(target?.status);
 
   const movePage = (source: ProjectPageKey, targetKey: ProjectPageKey) => {
-    if (!isActive || source === targetKey) return;
+    if (locked || !isActive || source === targetKey) return;
     const next = [...order];
     const from = next.indexOf(source);
     const to = next.indexOf(targetKey);
@@ -166,7 +168,9 @@ export default function ProjectDetailModal() {
       className="project-detail-modal workspace-modal"
       title={
         <span className="modal-title-row">
-          <span className="modal-title">{target?.name ?? '项目信息'}</span>
+          <span className="modal-title">
+            {target?.name ?? '项目信息'}
+          </span>
           {target?.code ? <span className="code-chip">{target.code}</span> : null}
           <ProjectStatusChip status={target?.status} />
         </span>
@@ -210,8 +214,10 @@ export default function ProjectDetailModal() {
             >
               <h3
                 className="pd-section-title is-draggable"
-                draggable={isActive}
-                title={isActive ? '拖动标题可调整这一块的先后顺序' : undefined}
+                draggable={isActive && !locked}
+                title={
+                  isActive && !locked ? '拖动标题可调整这一块的先后顺序' : undefined
+                }
                 onDragStart={(event) => {
                   if (!isActive) return;
                   setDragKey(key);
@@ -231,7 +237,7 @@ export default function ProjectDetailModal() {
                 ) : null}
                 {PAGE_ICONS[key]}
                 <span>{PROJECT_PAGE_LABELS[key]}</span>
-                {isActive ? (
+                {isActive && !locked ? (
                   <Tooltip title="打开这一页并编辑">
                     <Button
                       className="pd-section-edit"
@@ -265,7 +271,7 @@ export default function ProjectDetailModal() {
           <div className="project-detail-empty pd-empty">
             <FileTextOutlined className="pd-empty-icon" />
             <div>还没有简介、里程碑、风险、成本、相关方内容</div>
-            {isActive ? (
+            {isActive && !locked ? (
               <Button icon={<EditOutlined />} onClick={() => openPage('intro')}>
                 编辑简介
               </Button>

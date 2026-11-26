@@ -4,6 +4,7 @@ import {
   collectStats,
   findTask,
   isFocused,
+  isLockedProjectStatus,
   type ProjectDetail,
   type ProjectPageKey,
   type ProjectSummary,
@@ -219,6 +220,18 @@ interface AppState {
   }) => Promise<void>;
   /** 在项目总览中直接增删某个项目的标签（不要求该项目处于选中状态）。 */
   setProjectTags: (projectId: string, tags: string[]) => Promise<void>;
+}
+
+/** 已归档 / 已终止项目的写入守卫：除项目信息外的内容一律只读。 */
+function lockedProject(state: AppState): boolean {
+  return isLockedProjectStatus(state.project?.status);
+}
+
+function lockedProjectById(state: AppState, projectId: string): boolean {
+  if (projectId === state.activeId) return lockedProject(state);
+  return isLockedProjectStatus(
+    state.projects.find((project) => project.id === projectId)?.status,
+  );
 }
 
 let booted = false;
@@ -576,6 +589,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   saveProjectPage: async (key, text) => {
+    if (lockedProject(get())) throw new Error('项目已归档或终止，仅可修改项目信息');
     const current = get().project;
     if (!current) return;
     const detail = await api.saveProjectPage(current.id, key, text);
@@ -583,6 +597,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setProjectPageOrder: async (order) => {
+    if (lockedProject(get())) throw new Error('项目已归档或终止，仅可修改项目信息');
     const current = get().project;
     if (!current) return;
     const detail = await api.saveProjectPageOrder(current.id, order);
@@ -590,6 +605,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   saveMilestoneTasks: async (ids) => {
+    if (lockedProject(get())) throw new Error('项目已归档或终止，仅可修改项目信息');
     const current = get().project;
     if (!current) return;
     const detail = await api.saveMilestoneTasks(current.id, ids);
@@ -799,8 +815,16 @@ export const useStore = create<AppState>((set, get) => ({
 
   applyRemoteSettings: (settings) => {
     const next = normalizeSettings(settings);
-    cacheSettings(next);
-    set({ appearance: next.appearance, brand: next.brand, statuses: next.statuses });
+    // 兼容尚未升级的服务端：回传状态缺少 icon 时沿用本地已选图标，
+    // 否则一次保存广播就会把图标重置为按名称推断的默认值。
+    const current = get().statuses;
+    const statuses = next.statuses.map((status) => {
+      const local = current.find((item) => item.name === status.name);
+      return local?.icon && !status.icon ? { ...status, icon: local.icon } : status;
+    });
+    const merged = { ...next, statuses };
+    cacheSettings(merged);
+    set({ appearance: merged.appearance, brand: merged.brand, statuses });
   },
 
   openProjectDetail: (id) => {
@@ -828,6 +852,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   toggleDone: async (node) => {
+    if (lockedProject(get())) throw new Error('项目已归档或终止，仅可修改项目信息');
     const { project, activeId } = get();
     if (!project || !activeId) return;
 
@@ -854,6 +879,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   saveFields: async (taskId, patch) => {
+    if (lockedProject(get())) throw new Error('项目已归档或终止，仅可修改项目信息');
     const activeId = get().activeId;
     if (!activeId) throw new Error('尚未选择项目');
 
@@ -866,6 +892,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   toggleFocus: async (projectId, taskId, focused) => {
+    if (lockedProjectById(get(), projectId)) throw new Error('项目已归档或终止，仅可修改项目信息');
     const next = !focused;
     await api.patchTask(projectId, taskId, { fields: { focus: next ? '1' : '' } });
     await Promise.all([
@@ -881,6 +908,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setFocusColor: async (projectId, taskId, color) => {
+    if (lockedProjectById(get(), projectId)) throw new Error('项目已归档或终止，仅可修改项目信息');
     await api.patchTask(projectId, taskId, { fields: { focusColor: color } });
     await Promise.all([
       get().refreshProjects(),
@@ -898,6 +926,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   addProgress: async (taskId, text, author) => {
+    if (lockedProject(get())) throw new Error('项目已归档或终止，仅可修改项目信息');
     const activeId = get().activeId;
     if (!activeId) throw new Error('尚未选择项目');
 
@@ -906,6 +935,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   updateProgress: async (taskId, line, text) => {
+    if (lockedProject(get())) throw new Error('项目已归档或终止，仅可修改项目信息');
     const activeId = get().activeId;
     if (!activeId) throw new Error('尚未选择项目');
 
@@ -914,6 +944,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   createTask: async (input) => {
+    if (lockedProject(get())) throw new Error('项目已归档或终止，仅可修改项目信息');
     const activeId = get().activeId;
     if (!activeId) throw new Error('尚未选择项目');
 
@@ -927,6 +958,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   deleteTask: async (taskId) => {
+    if (lockedProject(get())) throw new Error('项目已归档或终止，仅可修改项目信息');
     const activeId = get().activeId;
     if (!activeId) throw new Error('尚未选择项目');
 
@@ -936,6 +968,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   moveTask: async (taskId, targetId, position) => {
+    if (lockedProject(get())) throw new Error('项目已归档或终止，仅可修改项目信息');
     const activeId = get().activeId;
     if (!activeId) throw new Error('尚未选择项目');
 
@@ -954,6 +987,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   moveTaskToSection: async (taskId, section) => {
+    if (lockedProject(get())) throw new Error('项目已归档或终止，仅可修改项目信息');
     const activeId = get().activeId;
     if (!activeId) throw new Error('尚未选择项目');
 
@@ -970,6 +1004,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   createSection: async (section) => {
+    if (lockedProject(get())) throw new Error('项目已归档或终止，仅可修改项目信息');
     const activeId = get().activeId;
     if (!activeId) throw new Error('尚未选择项目');
     await api.createSection(activeId, section);
@@ -977,6 +1012,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   renameSection: async (from, to) => {
+    if (lockedProject(get())) throw new Error('项目已归档或终止，仅可修改项目信息');
     const activeId = get().activeId;
     if (!activeId) throw new Error('尚未选择项目');
     await api.renameSection(activeId, from, to);
@@ -984,6 +1020,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   deleteSection: async (section) => {
+    if (lockedProject(get())) throw new Error('项目已归档或终止，仅可修改项目信息');
     const activeId = get().activeId;
     if (!activeId) throw new Error('尚未选择项目');
     await api.deleteSection(activeId, section);
@@ -991,6 +1028,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   saveSectionDescription: async (section, description) => {
+    if (lockedProject(get())) throw new Error('项目已归档或终止，仅可修改项目信息');
     const activeId = get().activeId;
     if (!activeId) throw new Error('尚未选择项目');
     await api.saveSectionDescription(activeId, section, description);

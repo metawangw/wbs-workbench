@@ -6,7 +6,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { Alert, Button, Drawer, Skeleton } from 'antd';
-import { findTask, type AppSettings } from '@wbs/shared';
+import { findTask, isLockedProjectStatus, type AppSettings } from '@wbs/shared';
 import { SIDEBAR_DEFAULT_WIDTH, useStore } from './store';
 import { groupBySection } from './lib/filters';
 import Sidebar from './components/Sidebar';
@@ -199,7 +199,8 @@ export default function App() {
         !event.altKey &&
         !state.drawerTaskId &&
         !state.createDraft.open &&
-        state.project
+        state.project &&
+        !isLockedProjectStatus(state.project?.status)
       ) {
         event.preventDefault();
         const sections = state.project.sections ?? [];

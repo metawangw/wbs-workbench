@@ -4,6 +4,7 @@ import {
   findTask,
   isTitleTask,
   isVersionTask,
+  isLockedProjectStatus,
   relatedTaskIds,
   showsCreated,
   type TaskNode,
@@ -36,6 +37,7 @@ export default function TaskRow({ node, code, codes }: TaskRowProps) {
   const depPeek = useStore((state) => state.depPeek);
   const setDepPeek = useStore((state) => state.setDepPeek);
   const project = useStore((state) => state.project);
+  const locked = isLockedProjectStatus(project?.status);
   const jumpToTask = useStore((state) => state.jumpToTask);
   const { message } = AntApp.useApp();
 
@@ -103,7 +105,7 @@ export default function TaskRow({ node, code, codes }: TaskRowProps) {
 
             {showCheckbox ? (
               <span className="task-checkbox" onClick={(event) => event.stopPropagation()}>
-                <Checkbox checked={node.done} onChange={handleToggle} />
+                <Checkbox checked={node.done} disabled={locked} onChange={handleToggle} />
               </span>
             ) : null}
 

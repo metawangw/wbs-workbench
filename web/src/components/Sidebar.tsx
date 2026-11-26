@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import type { CSSProperties, DragEvent } from 'react';
+import type { DragEvent } from 'react';
 import { App as AntApp, Button, Dropdown, Input, Modal, Popconfirm, Tooltip, type MenuProps } from 'antd';
 import {
   AppstoreOutlined,
@@ -15,8 +15,8 @@ import {
 } from '@ant-design/icons';
 import type { ProjectSummary } from '@wbs/shared';
 import { useStore } from '../store';
-import { projectStatusColor } from '../lib/settings';
 import { brandGlyphStyle } from './atoms';
+import { ProjectStatusIcon } from './StatusIcon';
 
 function dirOf(project: ProjectSummary): string {
   const parts = project.path.split('/');
@@ -83,7 +83,6 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const activeId = useStore((state) => state.activeId);
   const loadingProjects = useStore((state) => state.loadingProjects);
   const brand = useStore((state) => state.brand);
-  const statuses = useStore((state) => state.statuses);
   const selectProject = useStore((state) => state.selectProject);
   const showOverview = useStore((state) => state.showOverview);
   const refreshAll = useStore((state) => state.refreshAll);
@@ -521,15 +520,10 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                     onDragEnd={clearDragState}
                   >
                     <div className="project-item-top">
-                      <span
-                        className="status-dot"
-                        style={
-                          {
-                            '--dot': projectStatusColor(project.status, statuses),
-                          } as CSSProperties
-                        }
-                      />
-                      <span className="project-name">{project.name}</span>
+                      <ProjectStatusIcon status={project.status} size={14} />
+                      <span className="project-name">
+                        {project.name}
+                      </span>
                     </div>
                     <div className="mini-progress">
                       <span style={{ width: `${percent}%` }} />

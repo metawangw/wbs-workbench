@@ -305,7 +305,6 @@ export function ProjectStatusChip({ status }: { status?: string }) {
   const color = projectStatusColor(status, statuses);
   return (
     <span className="status-chip" style={{ '--chip': color } as CSSProperties}>
-      <span className="status-chip-dot" />
       {status}
     </span>
   );

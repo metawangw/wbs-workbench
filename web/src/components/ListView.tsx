@@ -25,6 +25,7 @@ import {
   collectCodes,
   isFocused,
   isTitleTask,
+  isLockedProjectStatus,
   isVersionTask,
   parseDeps,
   relatedTaskIds,
@@ -162,6 +163,7 @@ type ResolvedDrop =
 
 export default function ListView() {
   const project = useStore((state) => state.project);
+  const locked = isLockedProjectStatus(project?.status);
   const filters = useStore((state) => state.filters);
   const collapsed = useStore((state) => state.collapsed);
   const toggleCollapsed = useStore((state) => state.toggleCollapsed);
@@ -363,6 +365,7 @@ export default function ListView() {
               >
                 <Checkbox
                   checked={row.done}
+                  disabled={locked}
                   onChange={() => {
                     void toggleDone(row).catch((error: unknown) => {
                       message.error(error instanceof Error ? error.message : '更新失败');
@@ -381,6 +384,7 @@ export default function ListView() {
                   type="text"
                   size="small"
                   className={`lt-focus-btn${focused ? ' is-on' : ''}`}
+                  disabled={locked}
                   aria-label={focused ? '取消今日关注' : '标记到今日关注'}
                   icon={focused ? <PushpinFilled /> : <PushpinOutlined />}
                   onClick={(event) => {
@@ -401,6 +405,7 @@ export default function ListView() {
                   type="text"
                   size="small"
                   className="lt-add-child"
+                  disabled={locked}
                   aria-label="添加子任务"
                   icon={<PlusOutlined />}
                   onClick={(event) => {
@@ -653,7 +658,7 @@ export default function ListView() {
 
           return {
             className: classNames,
-            draggable: true,
+            draggable: !locked,
             onMouseEnter: () => {
               if (dragState) return;
               const related = relatedTaskIds(row.fields);
@@ -826,6 +831,7 @@ export default function ListView() {
                   type="button"
                   className={`group-desc${group.description ? '' : ' is-empty'}`}
                   title={group.description ? group.description : '添加分组描述'}
+                  disabled={locked}
                   onClick={() =>
                     setDescModal({ key: group.key, value: group.description ?? '' })
                   }
@@ -833,7 +839,7 @@ export default function ListView() {
                   {group.description || '添加描述'}
                 </button>
               ) : null}
-              <div className="group-actions">
+              <div className="group-actions" style={locked ? { pointerEvents: 'none', opacity: 0.45 } : undefined}>
                 <Tooltip title="在此分组新建任务">
                   <Button
                     type="text"

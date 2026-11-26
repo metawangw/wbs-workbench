@@ -26,6 +26,7 @@ import {
 import { useStore } from '../store';
 import DirPicker from './DirPicker';
 import { brandGlyphStyle } from './atoms';
+import StatusIcon from './StatusIcon';
 import {
   DEFAULT_BRAND,
   DEFAULT_CREATED_COLOR,
@@ -41,6 +42,7 @@ import {
   ICON_COLOR_PRESETS,
   MAX_PROJECT_STATUSES,
   MAX_PROJECT_STATUS_NAME,
+  PROJECT_STATUS_ICONS,
   STATUS_COLOR_POOL,
   type FontSize,
   type ListProgressAlign,
@@ -261,6 +263,52 @@ function StatusColorPicker({
   );
 }
 
+/** 状态图标选择器：图形用状态自定义色绘制，改色后预览即时跟随。 */
+function StatusIconPicker({
+  value,
+  color,
+  name,
+  onChange,
+}: {
+  value: string;
+  color: string;
+  name: string;
+  onChange: (icon: string) => void;
+}) {
+  const label = PROJECT_STATUS_ICONS.find((item) => item.key === value)?.label ?? '空心环';
+  return (
+    <Popover
+      trigger="click"
+      placement="bottomLeft"
+      title="选择状态图标"
+      content={
+        <div className="status-icon-grid">
+          {PROJECT_STATUS_ICONS.map((item) => (
+            <button
+              type="button"
+              key={item.key}
+              title={item.label}
+              className={`status-icon-option${item.key === value ? ' is-active' : ''}`}
+              onClick={() => onChange(item.key)}
+            >
+              <StatusIcon icon={item.key} color={color} size={21} />
+            </button>
+          ))}
+        </div>
+      }
+    >
+      <button
+        type="button"
+        className="status-def-icon-btn"
+        title={`${name}的图标：${label}`}
+        aria-label={`${name}的图标`}
+      >
+        <StatusIcon icon={value} color={color} size={15} />
+      </button>
+    </Popover>
+  );
+}
+
 /** One editable row: colour, name (commit on blur/enter), chip preview, order. */
 function StatusDefRow({
   def,
@@ -268,6 +316,7 @@ function StatusDefRow({
   total,
   onRename,
   onRecolor,
+  onIcon,
   onDelete,
   onMove,
 }: {
@@ -276,6 +325,7 @@ function StatusDefRow({
   total: number;
   onRename: (from: string, to: string) => boolean;
   onRecolor: (name: string, color: string) => void;
+  onIcon: (name: string, icon: string) => void;
   onDelete: (name: string) => void;
   onMove: (index: number, delta: number) => void;
 }) {
@@ -302,6 +352,12 @@ function StatusDefRow({
         label={`${def.name}的颜色`}
         onChange={(color) => onRecolor(def.name, color)}
       />
+      <StatusIconPicker
+        value={def.icon ?? 'ring'}
+        color={def.color}
+        name={def.name}
+        onChange={(icon) => onIcon(def.name, icon)}
+      />
       <Input
         className="status-def-name"
         value={draft}
@@ -312,7 +368,6 @@ function StatusDefRow({
         onPressEnter={commit}
       />
       <span className="status-def-chip" style={{ '--sc': def.color } as React.CSSProperties}>
-        <span className="status-def-chip-dot" />
         {def.name}
       </span>
       <div className="status-def-actions">
@@ -421,7 +476,7 @@ export default function SettingsModal() {
       name = `新状态 ${index}`;
     }
     const color = STATUS_COLOR_POOL[statuses.length % STATUS_COLOR_POOL.length];
-    setStatuses([...statuses, { name, color }]);
+    setStatuses([...statuses, { name, color, icon: 'dot' }]);
   };
 
   const renameStatus = (from: string, to: string): boolean => {
@@ -438,6 +493,15 @@ export default function SettingsModal() {
   const recolorStatus = (name: string, color: string) =>
     setStatuses(
       statuses.map((status) => (status.name === name ? { ...status, color } : status)),
+    );
+
+  const setStatusIcon = (name: string, icon: string) =>
+    setStatuses(
+      statuses.map((status) =>
+        status.name === name
+          ? { ...status, icon: icon as ProjectStatusDef['icon'] }
+          : status,
+      ),
     );
 
   const deleteStatus = (name: string) => {
@@ -696,10 +760,6 @@ export default function SettingsModal() {
                 <div className="ob-row">
                   <div className="ob-row-info">
                     <strong>状态清单</strong>
-                    <span>
-                      新建或编辑项目时从这里选择；可增删、改名、改色并调整顺序，名称最多{' '}
-                      {MAX_PROJECT_STATUS_NAME} 个字。
-                    </span>
                   </div>
                   <div className="ob-row-control">
                     <span className="ob-value">
@@ -718,6 +778,7 @@ export default function SettingsModal() {
                         total={statuses.length}
                         onRename={renameStatus}
                         onRecolor={recolorStatus}
+                        onIcon={setStatusIcon}
                         onDelete={deleteStatus}
                         onMove={moveStatus}
                       />

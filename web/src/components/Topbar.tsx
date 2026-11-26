@@ -27,6 +27,7 @@ import {
 import {
   PROJECT_PAGE_KEYS,
   PROJECT_PAGE_LABELS,
+  isLockedProjectStatus,
   isProjectPageKey,
   normalizeProjectPageOrder,
   type ProjectPageKey,
@@ -91,6 +92,7 @@ export default function Topbar({
 }) {
   const page = useStore((state) => state.page);
   const project = useStore((state) => state.project);
+  const locked = isLockedProjectStatus(project?.status);
   const loadingProject = useStore((state) => state.loadingProject);
   const loadingProjects = useStore((state) => state.loadingProjects);
   const view = useStore((state) => state.view);
@@ -172,6 +174,7 @@ export default function Topbar({
   const moreItems: MenuProps['items'] = [
     {
       key: 'new-task',
+      disabled: locked,
       icon: <PlusOutlined />,
       label: (
         <span className="menu-item-row">
@@ -180,9 +183,9 @@ export default function Topbar({
         </span>
       ),
     },
-    { key: 'new-section', icon: <FolderAddOutlined />, label: '新建分组' },
+    { key: 'new-section', icon: <FolderAddOutlined />, label: '新建分组', disabled: locked },
     { type: 'divider' },
-    { key: 'open-file', icon: <FileTextOutlined />, label: '打开任务 Markdown 源文件' },
+    { key: 'open-file', icon: <FileTextOutlined />, label: '打开任务 Markdown 源文件', disabled: locked },
     { key: 'open-folder', icon: <FolderOpenOutlined />, label: '打开文件目录' },
     { type: 'divider' },
     { key: 'export-html', icon: <CodeOutlined />, label: '另存为 HTML（所见即所得）' },
@@ -212,6 +215,10 @@ export default function Topbar({
 
   const handleMoreClick: MenuProps['onClick'] = ({ key }) => {
     if (!project) return;
+    if (locked && ['new-task', 'new-section', 'open-file'].includes(key)) {
+      message.info('项目已归档或终止，仅可修改项目信息');
+      return;
+    }
     const projectId = project.id;
 
     if (key === 'new-task') {
@@ -371,6 +378,7 @@ export default function Topbar({
               </h1>
               {project?.code ? <span className="code-chip">{project.code}</span> : null}
               <ProjectStatusChip status={project?.status} />
+              {locked ? <span className="readonly-chip">只读</span> : null}
               <Button
                 className="project-edit-btn"
                 type="text"
@@ -453,7 +461,7 @@ export default function Topbar({
                   <div
                     key={tab.key}
                     className={`page-tab-wrap${dragging ? ' is-dragging' : ''}${dropTarget ? ' is-drop' : ''}`}
-                    draggable={Boolean(project)}
+                    draggable={Boolean(project) && !locked}
                     onDragStart={(event) => {
                       if (!project) return;
                       setDragPage(tab.key);
@@ -472,6 +480,7 @@ export default function Topbar({
                     }}
                     onDrop={(event) => {
                       event.preventDefault();
+                      if (locked) return;
                       if (dragPage) movePage(dragPage, tab.key);
                       setDragPage(null);
                       setOverPage(null);

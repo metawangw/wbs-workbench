@@ -8,7 +8,10 @@ import {
   PushpinOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
-import { normalizeProjectTags, type ProjectSummary } from '@wbs/shared';
+import {
+  normalizeProjectTags,
+  type ProjectSummary,
+} from '@wbs/shared';
 import { useStore } from '../store';
 import { ProjectStatusChip } from './atoms';
 import FocusBoard from './FocusBoard';
@@ -285,7 +288,6 @@ export default function OverviewPage() {
   const folders = useStore((state) => state.folders);
   const selectProject = useStore((state) => state.selectProject);
   const openProjectDetail = useStore((state) => state.openProjectDetail);
-  const statuses = useStore((state) => state.statuses);
   const [tab, setTab] = useState<OverviewTab | null>(loadOverviewTab);
 
   const changeTab = (next: OverviewTab) => {
@@ -517,7 +519,6 @@ export default function OverviewPage() {
         {activeTab === 'focus' ? (
           <FocusBoard
             projects={sorted}
-            statuses={statuses}
             onShowProjects={() => changeTab('projects')}
           />
         ) : (

@@ -1,6 +1,6 @@
 import { Select } from 'antd';
 import { useStore } from '../store';
-import { projectStatusColor } from '../lib/settings';
+import { ProjectStatusIcon } from './StatusIcon';
 
 interface Props {
   /** Injected by AntD Form.Item. */
@@ -21,7 +21,7 @@ export default function StatusSelect({
     value: status.name,
     label: (
       <span className="status-option">
-        <span className="status-option-dot" style={{ background: status.color }} />
+        <ProjectStatusIcon status={status.name} size={12} />
         {status.name}
       </span>
     ),
@@ -35,10 +35,7 @@ export default function StatusSelect({
       value,
       label: (
         <span className="status-option">
-          <span
-            className="status-option-dot"
-            style={{ background: projectStatusColor(value, statuses) }}
-          />
+          <ProjectStatusIcon status={value} size={12} />
           {value}
           <span className="status-option-tag">未在设置中</span>
         </span>

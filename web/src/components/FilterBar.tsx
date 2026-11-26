@@ -1,11 +1,11 @@
 import { Button, Checkbox, Input, Popover } from 'antd';
 import {
-  ArrowsAltOutlined,
   CloseCircleOutlined,
+  DownOutlined,
   FilterOutlined,
   SearchOutlined,
   SettingOutlined,
-  ShrinkOutlined,
+  UpOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../store';
 import {
@@ -309,7 +309,7 @@ export default function FilterBar() {
         className="icon-btn"
         type="text"
         size="small"
-        icon={hasCollapsed ? <ArrowsAltOutlined /> : <ShrinkOutlined />}
+        icon={hasCollapsed ? <DownOutlined /> : <UpOutlined />}
         onClick={hasCollapsed ? expandAll : collapseAll}
         disabled={expandableIds.length === 0}
       >

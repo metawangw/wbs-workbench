@@ -30,6 +30,7 @@ import {
   findTask,
   flattenTasks,
   isSelfOrDescendant,
+  isLockedProjectStatus,
   parseDeps,
   priorityMeta,
   isTitleTask,
@@ -91,6 +92,7 @@ function readAuthor(): string {
 export default function TaskDrawer() {
   const drawerTaskId = useStore((state) => state.drawerTaskId);
   const project = useStore((state) => state.project);
+  const locked = isLockedProjectStatus(project?.status);
   const closeTask = useStore((state) => state.closeTask);
   const toggleDone = useStore((state) => state.toggleDone);
   const saveFields = useStore((state) => state.saveFields);
@@ -364,19 +366,21 @@ export default function TaskDrawer() {
           type="text"
           icon={<DeleteOutlined />}
           loading={deleting}
+          style={locked ? { display: 'none' } : undefined}
         >
           删除任务
         </Button>
       </Popconfirm>
 
       <div className="drawer-footer-right">
-        {dirty ? <span className="dirty-hint">有未保存修改</span> : null}
+        {dirty && !locked ? <span className="dirty-hint">有未保存修改</span> : null}
         <Button onClick={requestClose}>关闭</Button>
         <Button
           type="primary"
           icon={<SaveOutlined />}
           disabled={!dirty}
           loading={saving}
+          style={locked ? { display: 'none' } : undefined}
           onClick={() => void handleSave()}
         >
           保存字段
@@ -394,14 +398,18 @@ export default function TaskDrawer() {
       title={
         <span className="drawer-heading">
           任务详情
-          {project ? <span className="drawer-heading-sub">{project.name}</span> : null}
+          {project ? (
+            <span className="drawer-heading-sub">
+              {project.name}
+            </span>
+          ) : null}
         </span>
       }
       footer={footer}
       styles={{ body: { padding: 0 }, footer: { padding: 0 } }}
     >
       {task && form ? (
-        <div className="drawer-body">
+        <div className="drawer-body" data-readonly={locked ? 'true' : undefined}>
           <div className="drawer-head">
             <div className="drawer-eyebrow">
               <span className="wbs-code strong">{codes.get(task.id)}</span>
@@ -417,18 +425,20 @@ export default function TaskDrawer() {
                 className="drawer-title-input"
                 variant="borderless"
                 value={form.title}
+                readOnly={locked}
                 maxLength={300}
                 onChange={(event) => update({ title: event.target.value })}
                 onPressEnter={() => {
                   if (dirty) void handleSave();
                 }}
               />
-              <Tooltip title="编辑标题">
+              <Tooltip title={locked ? '项目已归档或终止，任务只读' : '编辑标题'}>
                 <Button
                   className="title-edit-btn"
                   type="text"
                   size="small"
                   icon={<EditOutlined />}
+                  style={locked ? { display: 'none' } : undefined}
                   onClick={() => titleRef.current?.focus()}
                   aria-label="编辑任务标题"
                 />
@@ -437,10 +447,13 @@ export default function TaskDrawer() {
 
             <div className="drawer-statusbar">
               <StatusPill done={task.done} />
-              <span className="status-hint">切换状态会立即写入文件</span>
+              <span className="status-hint">
+                {locked ? '项目已归档或终止，任务只读' : '切换状态会立即写入文件'}
+              </span>
               <Switch
                 size="small"
                 checked={task.done}
+                disabled={locked}
                 onChange={() => void handleToggleStatus()}
               />
             </div>
@@ -744,6 +757,7 @@ export default function TaskDrawer() {
                         <button
                           type="button"
                           className="timeline-edit-btn"
+                          style={locked ? { display: 'none' } : undefined}
                           aria-label="修改这条进展"
                           onClick={() => {
                             setEditingLine(entry.line);

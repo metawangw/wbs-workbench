@@ -24,14 +24,17 @@ import {
   DEFAULT_VERSION_COLOR,
   MAX_PROJECT_STATUSES,
   MAX_PROJECT_STATUS_NAME,
+  PROJECT_STATUS_ICONS,
   STATUS_COLOR_POOL,
   buildFavicon,
+  defaultStatusIcon,
   fontSizeBump,
   normalizeAppearance,
   normalizeBrand,
   normalizeProjectStatuses,
   normalizeSettings,
   projectStatusColor,
+  projectStatusIcon,
   type AppearanceSettings,
   type AppSettings,
   type BrandSettings,
@@ -40,6 +43,7 @@ import {
   type ListProgressDetail,
   type PageStyle,
   type ProjectStatusDef,
+  type ProjectStatusIconKey,
 } from '@wbs/shared';
 
 export {
@@ -59,14 +63,17 @@ export {
   DEFAULT_VERSION_COLOR,
   MAX_PROJECT_STATUSES,
   MAX_PROJECT_STATUS_NAME,
+  PROJECT_STATUS_ICONS,
   STATUS_COLOR_POOL,
   buildFavicon,
+  defaultStatusIcon,
   fontSizeBump,
   normalizeAppearance,
   normalizeBrand,
   normalizeProjectStatuses,
   normalizeSettings,
   projectStatusColor,
+  projectStatusIcon,
   type AppearanceSettings,
   type AppSettings,
   type BrandSettings,
@@ -75,6 +82,7 @@ export {
   type ListProgressDetail,
   type PageStyle,
   type ProjectStatusDef,
+  type ProjectStatusIconKey,
 };
 
 export interface PresetColor {

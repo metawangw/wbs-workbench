@@ -430,13 +430,11 @@ body.is-resizing-sidebar {
   width: 100%;
 }
 
-.status-dot {
-  width: 6px;
-  height: 6px;
+/* 项目状态图标：颜色由状态自定义色注入 currentColor。 */
+.status-icon {
+  display: block;
   flex: none;
-  border-radius: 50%;
-  background: var(--dot, var(--text-4));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot, #98a2b3) 13%, transparent);
+  overflow: visible;
 }
 
 .project-name {
@@ -664,13 +662,6 @@ body.is-resizing-sidebar {
   color: var(--chip, var(--text-2));
   background: color-mix(in srgb, var(--chip, #667085) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--chip, #667085) 26%, transparent);
-}
-
-.status-chip-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: currentColor;
 }
 
 .topbar-sep {
@@ -4481,7 +4472,9 @@ body.compact-ui .drawer-section {
   border: 1px dashed transparent;
 }
 
+/* 根目录拖放区：不拖动时完全不占位，避免建目录后列表顶部出现空白。 */
 .root-drop-zone {
+  display: none;
   margin: 0 0 3px;
   padding: 4px 8px;
   border: 1px dashed var(--border);
@@ -4489,12 +4482,11 @@ body.compact-ui .drawer-section {
   color: var(--text-4);
   font-size: calc(9.5px + var(--fs-bump));
   text-align: center;
-  opacity: 0;
-  transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
 .project-list:has(.row-dragging) .root-drop-zone {
-  opacity: 1;
+  display: block;
 }
 
 .root-drop-zone.is-over {
@@ -4902,6 +4894,53 @@ body.compact-ui .drawer-section {
   box-shadow: 0 0 0 2px var(--text-4);
 }
 
+.status-def-icon-btn {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.status-def-icon-btn:hover {
+  border-color: var(--text-4);
+}
+
+.status-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 44px);
+  gap: 6px;
+}
+
+.status-icon-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.status-icon-option:hover {
+  background: var(--surface-soft);
+}
+
+.status-icon-option.is-active {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  color: var(--text);
+}
+
 .status-def-row .status-def-name {
   flex: 1;
   min-width: 0;
@@ -4923,14 +4962,6 @@ body.compact-ui .drawer-section {
   color: var(--sc, var(--text-2));
   background: color-mix(in srgb, var(--sc, #667085) 9%, transparent);
   border: 1px solid color-mix(in srgb, var(--sc, #667085) 28%, transparent);
-}
-
-.status-def-chip-dot {
-  width: 5px;
-  height: 5px;
-  flex: none;
-  border-radius: 50%;
-  background: currentColor;
 }
 
 .status-def-actions {
@@ -4957,13 +4988,6 @@ body.compact-ui .drawer-section {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-}
-
-.status-option-dot {
-  width: 7px;
-  height: 7px;
-  flex: none;
-  border-radius: 50%;
 }
 
 .status-option-tag {
@@ -5327,11 +5351,11 @@ body.compact-ui .drawer-section {
   padding: 0 2px;
 }
 
-.focus-col-dot {
-  width: 7px;
-  height: 7px;
+.focus-col-pin {
   flex: none;
-  border-radius: 50%;
+  font-size: calc(11px + var(--fs-bump));
+  line-height: 1;
+  color: #f79009;
 }
 
 .focus-col-name {
@@ -5342,22 +5366,6 @@ body.compact-ui .drawer-section {
   font-size: calc(11.5px + var(--fs-bump));
   font-weight: 700;
   color: var(--text);
-}
-
-.focus-col-count {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  flex: none;
-  font-size: calc(10px + var(--fs-bump));
-  color: var(--text-4);
-  font-variant-numeric: tabular-nums;
-}
-
-.focus-col-count .anticon {
-  font-size: calc(10px + var(--fs-bump));
-  color: #f79009;
 }
 
 .focus-col-body {
@@ -6389,4 +6397,30 @@ tr.is-jump-target > td:first-child {
 .task-row .version-type-tag,
 .task-row .version-chip {
   margin-left: 2px;
+}
+
+
+/* 已归档 / 已终止项目：只允许修改项目信息，任务内容与进展只读。 */
+.readonly-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.drawer-body[data-readonly='true'] .field-grid,
+.drawer-body[data-readonly='true'] .drawer-title-row,
+.drawer-body[data-readonly='true'] .progress-composer {
+  pointer-events: none;
+  opacity: 0.62;
+}
+
+.drawer-body[data-readonly='true'] .drawer-section-toggle-hint {
+  visibility: hidden;
 }

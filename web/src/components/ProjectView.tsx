@@ -5,7 +5,7 @@ import {
   PlusOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
-import { isProjectPageKey, type ProjectPageKey } from '@wbs/shared';
+import { isLockedProjectStatus, isProjectPageKey, type ProjectPageKey } from '@wbs/shared';
 import { useStore } from '../store';
 import FilterBar from './FilterBar';
 import BoardView from './BoardView';
@@ -24,6 +24,8 @@ export default function ProjectView() {
   const pageKey: ProjectPageKey | null = isProjectPageKey(view) ? view : null;
 
   if (!project) return null;
+
+  const locked = isLockedProjectStatus(project?.status);
 
   const warnings =
     project.warnings.length > 0 ? (
@@ -61,6 +63,7 @@ export default function ProjectView() {
             <Button
               type="primary"
               icon={<PlusOutlined />}
+              disabled={locked}
               onClick={() => openCreate(null)}
             >
               新建第一个任务

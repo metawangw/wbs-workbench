@@ -14,6 +14,7 @@ import {
   PROJECT_PAGE_TEMPLATES,
   buildTaskRefIndex,
   lookupTaskRef,
+  isLockedProjectStatus,
   type ProjectPageKey,
 } from '@wbs/shared';
 import { useStore } from '../store';
@@ -90,16 +91,21 @@ export default function PageView({ pageKey }: { pageKey: ProjectPageKey }) {
 
   if (!project) return null;
 
+  const locked = isLockedProjectStatus(project?.status);
   const label = PROJECT_PAGE_LABELS[pageKey];
 
   const startEdit = () => {
+    if (locked) {
+      message.info('项目已归档或终止，仅可修改项目信息');
+      return;
+    }
     setDraft(stored.trim() ? stored : template);
     caretRef.current = null;
     setEditing(true);
   };
 
   const submit = async () => {
-    if (saving) return;
+    if (locked || saving) return;
     setSaving(true);
     try {
       // 示例原样未改 → 视为空页面，不把示例写进项目文件。
@@ -171,7 +177,7 @@ export default function PageView({ pageKey }: { pageKey: ProjectPageKey }) {
         <div className="page-view-actions">
           {editing && pageKey === 'milestone' ? (
             <Tooltip title="把 ![[序号]] 插到光标处">
-              <Button size="small" icon={<LinkOutlined />} onClick={openPicker}>
+              <Button size="small" icon={<LinkOutlined />} disabled={locked} onClick={openPicker}>
                 插入任务
               </Button>
             </Tooltip>
@@ -199,10 +205,11 @@ export default function PageView({ pageKey }: { pageKey: ProjectPageKey }) {
               </Button>
             </>
           ) : (
-            <Tooltip title="编辑这一页 Markdown">
+            <Tooltip title={locked ? '项目已归档或终止，仅可修改项目信息' : '编辑这一页 Markdown'}>
               <Button
                 size="small"
                 icon={<EditOutlined />}
+                disabled={locked}
                 onClick={startEdit}
               >
                 编辑

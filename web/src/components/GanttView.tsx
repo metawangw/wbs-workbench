@@ -16,7 +16,7 @@ import {
   UnorderedListOutlined,
 } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
-import { collectCodes, dueDiff, isTitleTask, isVersionTask, type TaskNode } from '@wbs/shared';
+import { collectCodes, dueDiff, isLockedProjectStatus, isTitleTask, isVersionTask, type TaskNode } from '@wbs/shared';
 import { useStore } from '../store';
 import { filterByTypes, filterTree } from '../lib/filters';
 import { setGanttSnapshot } from '../lib/ganttSheet';
@@ -429,6 +429,7 @@ function buildParentMap(
 
 export default function GanttView() {
   const project = useStore((state) => state.project);
+  const locked = isLockedProjectStatus(project?.status);
   const filters = useStore((state) => state.filters);
   const collapsed = useStore((state) => state.collapsed);
   const toggleCollapsed = useStore((state) => state.toggleCollapsed);
@@ -1033,6 +1034,7 @@ export default function GanttView() {
                         >
                           <Checkbox
                             checked={row.task.done}
+                            disabled={locked}
                             onChange={() => handleToggleDone(row.task)}
                           />
                         </span>
