@@ -2572,15 +2572,15 @@ body.is-resizing-sidebar {
   padding: 6px 14px;
 }
 
+/* 表头 9 列标题统一居中：文字列与数字列一视同仁，
+   与正文的左对齐/右对齐脱钩，视觉上形成一致的列标签带。 */
 .index-col {
   position: relative;
   display: flex;
   align-items: center;
+  justify-content: center;
   min-width: 0;
-}
-
-.index-head .index-col.num {
-  justify-content: flex-end;
+  text-align: center;
 }
 
 /* 列宽拖拽热区：贴在表头单元格右缘，hover 时显示一条极细的主色线。 */
