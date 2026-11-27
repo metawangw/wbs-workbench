@@ -3078,6 +3078,24 @@ body.ov-col-resizing {
   color: var(--title-color, var(--primary));
 }
 
+/* 版本类型任务：底色与甘特图同一套算法 —— 把「版本」色按 7% 兑进页面底色，
+   悬浮加深到 13%。列表与看板共用这套值，三个视图里同一个版本节点长得一致。 */
+.list-view .wbs-table .ant-table-tbody > tr.table-row-version > td {
+  background: color-mix(in srgb, var(--version-color, #3538cd) 7%, var(--surface));
+}
+
+.list-view .wbs-table .ant-table-tbody > tr.table-row-version:hover > td {
+  background: color-mix(in srgb, var(--version-color, #3538cd) 13%, var(--surface));
+}
+
+.task-row.is-version-task {
+  background: color-mix(in srgb, var(--version-color, #3538cd) 7%, var(--surface));
+}
+
+.task-row.is-version-task:hover {
+  background: color-mix(in srgb, var(--version-color, #3538cd) 13%, var(--surface));
+}
+
 /* Switch rows in TaskDrawer / NewTaskModal. */
 .drawer-field-switches {
   display: flex;
