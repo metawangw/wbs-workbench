@@ -839,7 +839,10 @@ export default function ListView() {
                   {group.description || '添加描述'}
                 </button>
               ) : null}
-              <div className="group-actions" style={locked ? { pointerEvents: 'none', opacity: 0.45 } : undefined}>
+              {/* 已归档 / 已终止为只读：分组操作整体不渲染，
+                  否则会被 inline opacity 顶掉 :hover 才显示的规则，默认露出一排灰图标。 */}
+              {locked ? null : (
+              <div className="group-actions">
                 <Tooltip title="在此分组新建任务">
                   <Button
                     type="text"
@@ -886,6 +889,7 @@ export default function ListView() {
                   </>
                 ) : null}
               </div>
+              )}
             </div>
             ) : null}
             {!collapsedGroup ? renderTable(group) : null}
